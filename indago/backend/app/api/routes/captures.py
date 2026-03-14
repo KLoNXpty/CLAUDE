@@ -1,19 +1,20 @@
 """
 INDAGO Evidence Capture Platform
-Capture API Routes - Core forensic evidence endpoints
+Capture API Routes - Demo mode (inline async tasks, no Celery)
 """
+import asyncio
 import zipfile
 import io
+import json
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, desc
 
 from app.core.database import get_db
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user
 from app.models.user import User, UserRole
 from app.models.capture import (
     EvidenceCapture, CaptureStatus, Screenshot, CapturedResource,
@@ -24,10 +25,8 @@ from app.schemas.capture import (
     CaptureCreateRequest, CaptureStatusResponse, CaptureDetailResponse,
     CaptureListResponse, ScheduleCreateRequest, CompareRequest
 )
-from app.tasks.capture_tasks import execute_forensic_capture, generate_evidence_report
 from app.forensics.hasher import verify_hash_manifest
 from pathlib import Path
-import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,46 +37,53 @@ router = APIRouter(prefix="/captures", tags=["Evidence Captures"])
 async def create_capture(
     request: Request,
     data: CaptureCreateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Initiate a new forensic evidence capture.
-    Returns immediately with capture ID and status PENDING.
-    Capture runs asynchronously via Celery worker.
-    """
-    # Create capture record
+    """Initiate a new forensic evidence capture."""
     capture = EvidenceCapture(
         url=str(data.url),
         capture_type=data.capture_type,
         investigator_id=current_user.id,
-        investigator_ip=request.client.host if request.client else None,
+        investigator_ip=request.client.host if request.client else "127.0.0.1",
         case_number=data.case_number,
         case_description=data.case_description,
         capture_options=data.options,
         status=CaptureStatus.PENDING,
+        progress=0.0,
     )
     db.add(capture)
     await db.commit()
     await db.refresh(capture)
 
-    # Queue Celery task
-    task = execute_forensic_capture.delay(capture.id)
-    capture.celery_task_id = task.id
-    await db.commit()
-
-    # Audit log
+    # Audit
     audit = AuditLog(
         user_id=current_user.id,
         capture_id=capture.id,
         action="capture_created",
-        details={"url": capture.url, "capture_type": capture.capture_type},
-        ip_address=request.client.host if request.client else None,
+        details={"url": capture.url},
+        ip_address=request.client.host if request.client else "127.0.0.1",
     )
     db.add(audit)
     await db.commit()
 
+    # Run capture in background
+    background_tasks.add_task(_run_capture_background, capture.id)
+
     return capture
+
+
+async def _run_capture_background(capture_id: int):
+    """Run the forensic capture pipeline in background."""
+    from app.core.database import AsyncSessionLocal
+    from app.capture.pipeline import run_forensic_pipeline
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(EvidenceCapture).where(EvidenceCapture.id == capture_id))
+        capture = result.scalar_one_or_none()
+        if capture:
+            await run_forensic_pipeline(capture_id, db)
 
 
 @router.get("", response_model=list[CaptureListResponse])
@@ -89,18 +95,13 @@ async def list_captures(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List evidence captures for current user."""
     query = select(EvidenceCapture)
-
-    # Admins see all, others see own
     if current_user.role not in [UserRole.ADMINISTRATOR]:
         query = query.where(EvidenceCapture.investigator_id == current_user.id)
-
     if status:
         query = query.where(EvidenceCapture.status == status)
     if case_number:
         query = query.where(EvidenceCapture.case_number == case_number)
-
     query = query.order_by(desc(EvidenceCapture.initiated_at)).offset(skip).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
@@ -113,10 +114,7 @@ async def get_capture(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get detailed evidence capture information."""
     capture = await _get_capture_or_404(capture_id, db, current_user)
-
-    # Audit: evidence accessed
     audit = AuditLog(
         user_id=current_user.id,
         capture_id=capture_id,
@@ -125,7 +123,6 @@ async def get_capture(
     )
     db.add(audit)
     await db.commit()
-
     return capture
 
 
@@ -135,21 +132,7 @@ async def get_capture_status(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get capture status and progress (polling endpoint)."""
-    capture = await _get_capture_or_404(capture_id, db, current_user)
-
-    # If running, check Celery task
-    if capture.status == CaptureStatus.RUNNING and capture.celery_task_id:
-        try:
-            from app.tasks.celery_app import celery_app
-            task = celery_app.AsyncResult(capture.celery_task_id)
-            if task.info and isinstance(task.info, dict):
-                capture.progress = task.info.get("progress", capture.progress)
-                await db.commit()
-        except Exception:
-            pass
-
-    return capture
+    return await _get_capture_or_404(capture_id, db, current_user)
 
 
 @router.get("/{capture_id}/screenshots")
@@ -158,12 +141,8 @@ async def get_screenshots(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get all screenshots for a capture."""
     await _get_capture_or_404(capture_id, db, current_user)
-    result = await db.execute(
-        select(Screenshot).where(Screenshot.capture_id == capture_id)
-    )
-    screenshots = result.scalars().all()
+    result = await db.execute(select(Screenshot).where(Screenshot.capture_id == capture_id))
     return [
         {
             "id": ss.id,
@@ -172,10 +151,8 @@ async def get_screenshots(
             "sha256": ss.sha256,
             "file_size_bytes": ss.file_size_bytes,
             "timestamp_utc": ss.timestamp_utc.isoformat() if ss.timestamp_utc else None,
-            "width": ss.width,
-            "height": ss.height,
         }
-        for ss in screenshots
+        for ss in result.scalars().all()
     ]
 
 
@@ -185,14 +162,10 @@ async def get_forensic_logs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get forensic process log for a capture."""
     await _get_capture_or_404(capture_id, db, current_user)
     result = await db.execute(
-        select(ForensicLog)
-        .where(ForensicLog.capture_id == capture_id)
-        .order_by(ForensicLog.sequence)
+        select(ForensicLog).where(ForensicLog.capture_id == capture_id).order_by(ForensicLog.sequence)
     )
-    logs = result.scalars().all()
     return [
         {
             "sequence": log.sequence,
@@ -202,7 +175,7 @@ async def get_forensic_logs(
             "success": log.success,
             "data": log.event_data,
         }
-        for log in logs
+        for log in result.scalars().all()
     ]
 
 
@@ -212,18 +185,14 @@ async def get_metadata(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get captured page metadata."""
     await _get_capture_or_404(capture_id, db, current_user)
-    result = await db.execute(
-        select(EvidenceMetadata).where(EvidenceMetadata.capture_id == capture_id)
-    )
+    result = await db.execute(select(EvidenceMetadata).where(EvidenceMetadata.capture_id == capture_id))
     meta = result.scalar_one_or_none()
     if not meta:
         return {}
     return {
         "title": meta.page_title,
         "description": meta.page_description,
-        "canonical_url": meta.canonical_url,
         "language": meta.page_language,
         "cookies": meta.cookies,
         "meta_tags": meta.meta_tags,
@@ -239,25 +208,19 @@ async def get_social_data(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get extracted social media data."""
     await _get_capture_or_404(capture_id, db, current_user)
-    result = await db.execute(
-        select(SocialMediaData).where(SocialMediaData.capture_id == capture_id)
-    )
+    result = await db.execute(select(SocialMediaData).where(SocialMediaData.capture_id == capture_id))
     social = result.scalar_one_or_none()
     if not social:
         return {"message": "No social media data for this capture"}
     return {
         "platform": social.platform,
-        "post_id": social.post_id,
         "author_username": social.author_username,
         "author_display_name": social.author_display_name,
         "post_text": social.post_text,
         "post_datetime": social.post_datetime.isoformat() if social.post_datetime else None,
         "hashtags": social.hashtags,
-        "mentions": social.mentions,
         "likes_count": social.likes_count,
-        "shares_count": social.shares_count,
         "comments_count": social.comments_count,
         "comments_data": social.comments_data,
         "media_urls": social.media_urls,
@@ -270,40 +233,21 @@ async def get_hashes(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get all cryptographic hashes for a capture."""
     capture = await _get_capture_or_404(capture_id, db, current_user)
-
-    # Get resource hashes
-    res_result = await db.execute(
-        select(CapturedResource).where(CapturedResource.capture_id == capture_id)
-    )
-    resources = res_result.scalars().all()
-
-    # Get screenshot hashes
-    ss_result = await db.execute(
-        select(Screenshot).where(Screenshot.capture_id == capture_id)
-    )
-    screenshots = ss_result.scalars().all()
-
+    res_result = await db.execute(select(CapturedResource).where(CapturedResource.capture_id == capture_id))
+    ss_result = await db.execute(select(Screenshot).where(Screenshot.capture_id == capture_id))
     return {
         "evidence_id": str(capture.evidence_id),
-        "package": {
-            "sha256": capture.package_sha256,
-            "sha512": capture.package_sha512,
-        },
-        "html": {
-            "sha256": capture.html_sha256,
-        },
-        "dom": {
-            "sha256": capture.dom_sha256,
-        },
+        "package": {"sha256": capture.package_sha256, "sha512": capture.package_sha512},
+        "html": {"sha256": capture.html_sha256},
+        "dom": {"sha256": capture.dom_sha256},
         "screenshots": [
             {"filename": ss.filename, "sha256": ss.sha256, "sha512": ss.sha512, "md5": ss.md5}
-            for ss in screenshots
+            for ss in ss_result.scalars().all()
         ],
         "resources": [
             {"url": r.resource_url, "sha256": r.sha256, "type": r.resource_type}
-            for r in resources[:100]
+            for r in res_result.scalars().all()[:50]
         ],
     }
 
@@ -314,9 +258,7 @@ async def verify_integrity(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Verify cryptographic integrity of evidence package."""
     capture = await _get_capture_or_404(capture_id, db, current_user)
-
     if not capture.storage_path:
         raise HTTPException(status_code=400, detail="Evidence storage path not available")
 
@@ -344,16 +286,26 @@ async def verify_integrity(
 @router.post("/{capture_id}/report")
 async def generate_report(
     capture_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Generate PDF and JSON evidence report."""
     capture = await _get_capture_or_404(capture_id, db, current_user)
     if capture.status != CaptureStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="Capture must be completed before generating report")
+        raise HTTPException(status_code=400, detail="Capture must be completed first")
+    background_tasks.add_task(_generate_report_bg, capture_id)
+    return {"status": "generating", "capture_id": capture_id}
 
-    task = generate_evidence_report.delay(capture_id)
-    return {"task_id": task.id, "status": "generating", "capture_id": capture_id}
+
+async def _generate_report_bg(capture_id: int):
+    from app.core.database import AsyncSessionLocal
+    from app.reports.generator import ReportGenerator
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(EvidenceCapture).where(EvidenceCapture.id == capture_id))
+        capture = result.scalar_one_or_none()
+        if capture:
+            generator = ReportGenerator(capture, db)
+            await generator.generate()
 
 
 @router.get("/{capture_id}/download")
@@ -363,12 +315,9 @@ async def download_evidence(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Download complete evidence package as ZIP archive."""
     capture = await _get_capture_or_404(capture_id, db, current_user)
-
     if capture.status != CaptureStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Capture not yet completed")
-
     if not capture.storage_path:
         raise HTTPException(status_code=404, detail="Evidence files not found")
 
@@ -376,7 +325,6 @@ async def download_evidence(
     if not evidence_dir.exists():
         raise HTTPException(status_code=404, detail="Evidence directory not found")
 
-    # Audit log: evidence downloaded
     audit = AuditLog(
         user_id=current_user.id,
         capture_id=capture_id,
@@ -387,18 +335,14 @@ async def download_evidence(
     db.add(audit)
     await db.commit()
 
-    # Create ZIP in memory
-    def generate_zip():
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file_path in evidence_dir.rglob("*"):
-                if file_path.is_file():
-                    arcname = file_path.relative_to(evidence_dir.parent)
-                    zf.write(file_path, arcname)
-        buffer.seek(0)
-        return buffer.read()
-
-    zip_data = generate_zip()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path in evidence_dir.rglob("*"):
+            if file_path.is_file():
+                arcname = file_path.relative_to(evidence_dir.parent)
+                zf.write(file_path, arcname)
+    buffer.seek(0)
+    zip_data = buffer.read()
     evidence_id = str(capture.evidence_id)
 
     return StreamingResponse(
@@ -417,80 +361,54 @@ async def cancel_capture(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Cancel a pending or running capture."""
     capture = await _get_capture_or_404(capture_id, db, current_user)
-
     if capture.status not in [CaptureStatus.PENDING, CaptureStatus.RUNNING]:
-        raise HTTPException(status_code=400, detail="Capture cannot be cancelled in current state")
-
-    if capture.celery_task_id:
-        from app.tasks.celery_app import celery_app
-        celery_app.control.revoke(capture.celery_task_id, terminate=True)
-
+        raise HTTPException(status_code=400, detail="Cannot cancel in current state")
     capture.status = CaptureStatus.CANCELLED
     await db.commit()
     return {"status": "cancelled", "capture_id": capture_id}
 
 
-@router.post("/compare", tags=["Analysis"])
+@router.post("/compare")
 async def compare_captures(
     data: CompareRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Compare two evidence captures to detect changes.
-    Analyzes differences in HTML, hashes, and resources.
-    """
     capture_a = await _get_capture_or_404(data.capture_id_a, db, current_user)
     capture_b = await _get_capture_or_404(data.capture_id_b, db, current_user)
 
     differences = {
-        "capture_a": {"id": data.capture_id_a, "url": capture_a.url, "captured_at": capture_a.capture_completed_at},
-        "capture_b": {"id": data.capture_id_b, "url": capture_b.url, "captured_at": capture_b.capture_completed_at},
+        "capture_a": {"id": data.capture_id_a, "url": capture_a.url},
+        "capture_b": {"id": data.capture_id_b, "url": capture_b.url},
         "changes": [],
         "identical": True,
     }
-
-    # Compare hashes
-    if capture_a.html_sha256 != capture_b.html_sha256:
-        differences["changes"].append({"type": "html_changed", "field": "html_sha256",
-                                       "value_a": capture_a.html_sha256, "value_b": capture_b.html_sha256})
-
-    if capture_a.dom_sha256 != capture_b.dom_sha256:
-        differences["changes"].append({"type": "dom_changed", "field": "dom_sha256",
-                                       "value_a": capture_a.dom_sha256, "value_b": capture_b.dom_sha256})
-
-    if capture_a.http_status_code != capture_b.http_status_code:
-        differences["changes"].append({"type": "http_status_changed",
-                                       "value_a": capture_a.http_status_code, "value_b": capture_b.http_status_code})
-
-    if capture_a.server_ip != capture_b.server_ip:
-        differences["changes"].append({"type": "server_ip_changed",
-                                       "value_a": capture_a.server_ip, "value_b": capture_b.server_ip})
-
-    if capture_a.total_resources != capture_b.total_resources:
-        differences["changes"].append({"type": "resource_count_changed",
-                                       "value_a": capture_a.total_resources, "value_b": capture_b.total_resources})
+    checks = [
+        ("html_sha256", "HTML changed"),
+        ("dom_sha256", "DOM changed"),
+        ("http_status_code", "HTTP status changed"),
+        ("server_ip", "Server IP changed"),
+        ("total_resources", "Resource count changed"),
+    ]
+    for field, label in checks:
+        a_val = getattr(capture_a, field)
+        b_val = getattr(capture_b, field)
+        if a_val != b_val:
+            differences["changes"].append({"type": label, "value_a": a_val, "value_b": b_val})
 
     differences["identical"] = len(differences["changes"]) == 0
     differences["total_changes"] = len(differences["changes"])
-
     return differences
 
 
-# Scheduled captures
 @router.post("/schedules", status_code=201)
 async def create_scheduled_capture(
     data: ScheduleCreateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a new scheduled recurring capture."""
     from croniter import croniter
-    from datetime import datetime, timezone
-
-    # Validate cron expression
     try:
         cron = croniter(data.schedule_cron)
         next_run = cron.get_next(datetime)
@@ -505,12 +423,10 @@ async def create_scheduled_capture(
         investigator_id=current_user.id,
         case_number=data.case_number,
         next_run_at=next_run,
-        capture_options=data.options,
     )
     db.add(schedule)
     await db.commit()
     await db.refresh(schedule)
-
     return {
         "id": schedule.id,
         "url": schedule.url,
@@ -525,41 +441,27 @@ async def list_schedules(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List scheduled captures."""
-    query = select(ScheduledCapture).where(ScheduledCapture.investigator_id == current_user.id)
-    result = await db.execute(query)
-    schedules = result.scalars().all()
+    result = await db.execute(
+        select(ScheduledCapture).where(ScheduledCapture.investigator_id == current_user.id)
+    )
     return [
         {
             "id": s.id,
             "url": s.url,
             "schedule_cron": s.schedule_cron,
-            "schedule_description": s.schedule_description,
             "is_active": s.is_active,
             "run_count": s.run_count,
-            "last_run_at": s.last_run_at.isoformat() if s.last_run_at else None,
             "next_run_at": s.next_run_at.isoformat() if s.next_run_at else None,
         }
-        for s in schedules
+        for s in result.scalars().all()
     ]
 
 
-async def _get_capture_or_404(
-    capture_id: int,
-    db: AsyncSession,
-    current_user: User,
-) -> EvidenceCapture:
-    """Fetch capture or raise 404. Enforces access control."""
-    result = await db.execute(
-        select(EvidenceCapture).where(EvidenceCapture.id == capture_id)
-    )
+async def _get_capture_or_404(capture_id, db, current_user):
+    result = await db.execute(select(EvidenceCapture).where(EvidenceCapture.id == capture_id))
     capture = result.scalar_one_or_none()
-
     if not capture:
         raise HTTPException(status_code=404, detail="Capture not found")
-
-    # Access control: investigators can only see their own
     if current_user.role == UserRole.INVESTIGATOR and capture.investigator_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-
     return capture

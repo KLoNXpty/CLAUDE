@@ -1,18 +1,19 @@
 """
 INDAGO Evidence Capture Platform
-Main FastAPI Application Entry Point
+Main FastAPI Application - Demo Mode (SQLite, no Celery required)
 """
 import logging
+import asyncio
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.security import get_password_hash
 
-# Configure structured logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -20,20 +21,62 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def create_demo_users():
+    """Create default users for demo."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User, UserRole
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.username == "admin"))
+        if result.scalar_one_or_none():
+            return  # Already exists
+
+        users = [
+            User(
+                email="admin@indago.local",
+                username="admin",
+                full_name="INDAGO Administrator",
+                hashed_password=get_password_hash("admin123"),
+                role=UserRole.ADMINISTRATOR,
+                organization="INDAGO Platform",
+                is_active=True,
+            ),
+            User(
+                email="investigator@indago.local",
+                username="investigator",
+                full_name="Demo Investigator",
+                hashed_password=get_password_hash("investigator123"),
+                role=UserRole.INVESTIGATOR,
+                organization="Digital Forensics Unit",
+                badge_number="DFU-001",
+                is_active=True,
+            ),
+        ]
+        for u in users:
+            db.add(u)
+        await db.commit()
+        logger.info("Demo users created: admin / investigator")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifecycle management."""
-    logger.info("INDAGO Evidence Capture Platform starting...")
+    logger.info("=" * 50)
+    logger.info(" INDAGO Evidence Capture Platform")
+    logger.info(" Digital Evidence Preservation Platform")
+    logger.info("=" * 50)
     await init_db()
-    logger.info("Database initialized")
+    await create_demo_users()
+    logger.info("Database ready. Demo users created.")
+    logger.info(f"Evidence storage: {settings.EVIDENCE_BASE_PATH}")
     yield
-    logger.info("INDAGO Evidence Capture Platform shutting down")
+    logger.info("INDAGO shutting down.")
 
 
 app = FastAPI(
     title=settings.APP_NAME,
     description=(
-        "Professional Digital Evidence Preservation Platform for Forensic Investigators. "
+        "Professional Digital Evidence Preservation Platform. "
         "Compliant with ISO/IEC 27037, ISO/IEC 27042, RFC 3227, RFC 3161."
     ),
     version=settings.APP_VERSION,
@@ -43,16 +86,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register API routers
+# Import routes
 from app.api.routes.auth import router as auth_router
 from app.api.routes.captures import router as captures_router
 
@@ -62,30 +104,22 @@ app.include_router(captures_router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint."""
     return {
         "status": "operational",
         "platform": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "tagline": settings.APP_TAGLINE,
+        "mode": "demo",
+        "database": "SQLite (demo)",
+        "docs": "/api/docs",
     }
 
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
     return {
         "platform": settings.APP_NAME,
         "tagline": settings.APP_TAGLINE,
         "version": settings.APP_VERSION,
         "docs": "/api/docs",
+        "health": "/api/health",
     }
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error", "type": type(exc).__name__},
-    )

@@ -9,7 +9,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID
 import enum
 import uuid
 from app.core.database import Base
@@ -50,8 +49,8 @@ class EvidenceCapture(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     evidence_id = Column(
-        UUID(as_uuid=True),
-        default=uuid.uuid4,
+        String(36),
+        default=lambda: str(uuid.uuid4()),
         unique=True,
         nullable=False,
         index=True

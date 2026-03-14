@@ -1,13 +1,18 @@
 """
 INDAGO Evidence Capture Platform
-Database Configuration & Session Management
+Database Configuration - supports both PostgreSQL and SQLite
 """
+import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import MetaData
-from app.core.config import settings
 
-# Naming conventions for constraints (Alembic compatibility)
+# Allow override via environment
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite+aiosqlite:////tmp/indago_demo.db"
+)
+
 convention = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -23,11 +28,15 @@ class Base(DeclarativeBase):
     metadata = metadata
 
 
+# SQLite needs check_same_thread=False
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
-    echo=settings.DEBUG,
+    DATABASE_URL,
+    connect_args=connect_args,
+    echo=os.getenv("DEBUG", "false").lower() == "true",
 )
 
 AsyncSessionLocal = async_sessionmaker(
