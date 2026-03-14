@@ -100,4 +100,8 @@ export interface Capture {
   is_locked: boolean;
   error_message?: string;
   progress: number;
+  user_agent?: string;
+  viewport_width?: number;
+  viewport_height?: number;
+  screenshot_count?: number;
 }
