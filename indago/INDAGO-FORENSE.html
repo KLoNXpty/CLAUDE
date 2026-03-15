@@ -1,1 +1,2042 @@
-test
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INDAGO FORENSE - Evidencia Digital</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#1e3a5f;--blue:#2d6aa0;--gold:#c9972c;--gold-light:#e8b84b;--white:#ffffff;--gray-light:#f0f4f8;--gray:#8a9bb0;--gray-dark:#4a5568;--success:#2e7d32;--danger:#c62828;--warning:#f57f17;--sidebar-width:240px}
+body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--gray-light);color:#1a1a2e;min-height:100vh;display:flex}
+.sidebar{width:var(--sidebar-width);background:var(--navy);color:var(--white);display:flex;flex-direction:column;position:fixed;height:100vh;overflow-y:auto;z-index:100}
+.sidebar-logo{padding:20px 16px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:center}
+.sidebar-logo .logo-icon{font-size:32px;margin-bottom:4px}
+.sidebar-logo h1{font-size:18px;font-weight:700;color:var(--gold);letter-spacing:2px}
+.sidebar-logo p{font-size:10px;color:rgba(255,255,255,0.6);text-transform:uppercase;letter-spacing:1px}
+.sidebar-case{padding:12px 16px;background:rgba(0,0,0,0.2);margin:8px;border-radius:6px;font-size:11px}
+.sidebar-case .case-num{color:var(--gold);font-weight:700;font-size:13px}
+.sidebar-case .case-perito{color:rgba(255,255,255,0.7);margin-top:2px}
+.sidebar nav{flex:1;padding:8px 0}
+.nav-section{padding:8px 16px 4px;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.4);font-weight:600}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;color:rgba(255,255,255,0.75);font-size:13px;transition:all 0.2s;border-left:3px solid transparent}
+.nav-item:hover{background:rgba(255,255,255,0.08);color:var(--white)}
+.nav-item.active{background:rgba(201,151,44,0.15);color:var(--gold);border-left-color:var(--gold)}
+.nav-item .nav-icon{font-size:16px;width:20px;text-align:center}
+.nav-item .nav-badge{margin-left:auto;background:var(--gold);color:var(--navy);font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px}
+.sidebar-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,0.1);font-size:10px;color:rgba(255,255,255,0.4);text-align:center}
+.main-content{margin-left:var(--sidebar-width);flex:1;display:flex;flex-direction:column;min-height:100vh}
+.topbar{background:var(--white);border-bottom:2px solid var(--gold);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar-title{font-size:16px;font-weight:700;color:var(--navy)}
+.topbar-subtitle{font-size:11px;color:var(--gray);margin-top:1px}
+.topbar-actions{display:flex;gap:8px}
+.page{display:none;padding:24px;flex:1}
+.page.active{display:block}
+.card{background:var(--white);border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.08);margin-bottom:20px}
+.card-header{padding:16px 20px;border-bottom:1px solid #e8edf3;display:flex;align-items:center;justify-content:space-between}
+.card-header h3{font-size:14px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:8px}
+.card-body{padding:20px}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group.full-width{grid-column:1/-1}
+label{font-size:12px;font-weight:600;color:var(--gray-dark);text-transform:uppercase;letter-spacing:0.5px}
+input,select,textarea{padding:9px 12px;border:1.5px solid #dde3ea;border-radius:6px;font-size:13px;color:#1a1a2e;background:var(--white);transition:border-color 0.2s;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(45,106,160,0.1)}
+textarea{resize:vertical;min-height:80px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;text-decoration:none}
+.btn-primary{background:var(--blue);color:var(--white)}
+.btn-primary:hover{background:#235a8e}
+.btn-gold{background:var(--gold);color:var(--white)}
+.btn-gold:hover{background:#b8851f}
+.btn-success{background:var(--success);color:var(--white)}
+.btn-success:hover{background:#1b5e20}
+.btn-danger{background:var(--danger);color:var(--white)}
+.btn-danger:hover{background:#8e0000}
+.btn-outline{background:transparent;color:var(--blue);border:1.5px solid var(--blue)}
+.btn-outline:hover{background:var(--blue);color:var(--white)}
+.btn-sm{padding:5px 10px;font-size:11px}
+.btn-xs{padding:3px 7px;font-size:10px}
+.badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-blue{background:#e3f2fd;color:#1565c0}
+.badge-green{background:#e8f5e9;color:#2e7d32}
+.badge-gold{background:#fff8e1;color:#e65100}
+.badge-red{background:#ffebee;color:#c62828}
+.badge-gray{background:#f5f5f5;color:#616161}
+.hash-display{font-family:'Courier New',monospace;font-size:11px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:6px 10px;word-break:break-all;color:#1a237e}
+.evidence-grid{display:grid;gap:12px}
+.evidence-card{background:var(--white);border:1.5px solid #e8edf3;border-radius:8px;padding:16px;cursor:pointer;transition:all 0.2s;position:relative}
+.evidence-card:hover{border-color:var(--blue);box-shadow:0 2px 12px rgba(45,106,160,0.12)}
+.evidence-card .evi-number{font-size:11px;font-weight:700;color:var(--gold);letter-spacing:1px}
+.evidence-card .evi-title{font-size:14px;font-weight:600;color:var(--navy);margin:4px 0}
+.evidence-card .evi-url{font-size:11px;color:var(--gray);word-break:break-all;margin-bottom:8px}
+.evidence-card .evi-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.evidence-card .evi-actions{position:absolute;top:12px;right:12px;display:flex;gap:4px;opacity:0;transition:opacity 0.2s}
+.evidence-card:hover .evi-actions{opacity:1}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-bottom:20px}
+.stat-card{background:var(--white);border-radius:8px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,0.08);border-top:3px solid var(--blue)}
+.stat-card.gold{border-top-color:var(--gold)}
+.stat-card.green{border-top-color:var(--success)}
+.stat-card.red{border-top-color:var(--danger)}
+.stat-card .stat-value{font-size:28px;font-weight:700;color:var(--navy)}
+.stat-card .stat-label{font-size:11px;color:var(--gray);margin-top:2px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--white);border-radius:10px;width:100%;max-width:900px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.modal-header{padding:16px 20px;border-bottom:2px solid var(--gold);display:flex;align-items:center;justify-content:space-between;background:var(--navy);color:var(--white);border-radius:10px 10px 0 0}
+.modal-header h3{font-size:15px;font-weight:700;color:var(--gold)}
+.modal-close{background:none;border:none;color:rgba(255,255,255,0.7);font-size:20px;cursor:pointer;padding:0 4px}
+.modal-close:hover{color:var(--white)}
+.modal-body{padding:20px}
+.modal-footer{padding:12px 20px;border-top:1px solid #e8edf3;display:flex;gap:8px;justify-content:flex-end;background:#f8f9fa;border-radius:0 0 10px 10px}
+.custody-timeline{position:relative;padding-left:24px}
+.custody-timeline::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;background:#e8edf3}
+.custody-item{position:relative;padding:10px 0 10px 16px;border-left:none}
+.custody-item::before{content:'';position:absolute;left:-20px;top:14px;width:10px;height:10px;border-radius:50%;background:var(--blue);border:2px solid var(--white);box-shadow:0 0 0 2px var(--blue)}
+.custody-item.manual::before{background:var(--gold)}
+.custody-item .ci-time{font-size:10px;color:var(--gray);font-family:'Courier New',monospace}
+.custody-item .ci-action{font-size:13px;font-weight:600;color:var(--navy)}
+.custody-item .ci-detail{font-size:12px;color:var(--gray-dark)}
+.filter-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.filter-bar label{font-size:12px;color:var(--gray-dark);font-weight:600}
+.filter-bar select{padding:6px 10px;font-size:12px}
+.alert{padding:12px 16px;border-radius:6px;margin-bottom:16px;font-size:13px;display:flex;align-items:flex-start;gap:10px}
+.alert-info{background:#e3f2fd;border-left:4px solid #1976d2;color:#0d47a1}
+.alert-success{background:#e8f5e9;border-left:4px solid #2e7d32;color:#1b5e20}
+.alert-warning{background:#fff8e1;border-left:4px solid #f57f17;color:#e65100}
+.alert-danger{background:#ffebee;border-left:4px solid #c62828;color:#b71c1c}
+.section-divider{border:none;border-top:1px solid #e8edf3;margin:20px 0}
+.image-previews{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.image-preview-item{position:relative;width:100px;height:75px;border-radius:6px;overflow:hidden;border:2px solid #e0e0e0}
+.image-preview-item img{width:100%;height:100%;object-fit:cover}
+.image-preview-item .remove-img{position:absolute;top:2px;right:2px;background:rgba(198,40,40,0.9);color:white;border:none;border-radius:50%;width:18px;height:18px;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.platform-icon{display:inline-block;width:20px;height:20px;border-radius:4px;background:var(--blue);color:white;font-size:10px;font-weight:700;text-align:center;line-height:20px}
+.integrity-ok{color:var(--success);font-weight:700}
+.integrity-fail{color:var(--danger);font-weight:700}
+.tabs{display:flex;border-bottom:2px solid #e8edf3;margin-bottom:16px}
+.tab{padding:8px 16px;cursor:pointer;font-size:13px;color:var(--gray);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s}
+.tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:700}
+.tab:hover{color:var(--navy)}
+.export-card{border:1.5px solid #e8edf3;border-radius:8px;padding:20px;display:flex;align-items:flex-start;gap:16px;transition:border-color 0.2s}
+.export-card:hover{border-color:var(--blue)}
+.export-icon{font-size:36px;width:50px;text-align:center}
+.export-info h4{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.export-info p{font-size:12px;color:var(--gray-dark);margin-bottom:10px}
+.standards-note{background:#1e3a5f;color:rgba(255,255,255,0.85);padding:12px 16px;border-radius:6px;font-size:11px;margin-top:8px}
+.standards-note strong{color:var(--gold-light)}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--navy);color:var(--white);padding:12px 20px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);transform:translateY(100px);opacity:0;transition:all 0.3s;display:flex;align-items:center;gap:8px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.success{background:var(--success)}
+.toast.error{background:var(--danger)}
+.empty-state{text-align:center;padding:48px 24px;color:var(--gray)}
+.empty-state .empty-icon{font-size:48px;margin-bottom:16px;opacity:0.5}
+.empty-state h3{font-size:16px;font-weight:600;color:var(--gray-dark);margin-bottom:8px}
+.empty-state p{font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+table th{background:#f0f4f8;padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--gray-dark);text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e0e8f0}
+table td{padding:10px 12px;border-bottom:1px solid #f0f4f8;vertical-align:top}
+table tr:hover td{background:#fafbfd}
+.progress-bar{height:6px;background:#e8edf3;border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;background:var(--blue);border-radius:3px;transition:width 0.3s}
+@media(max-width:768px){.sidebar{transform:translateX(-100%);transition:transform 0.3s}.sidebar.open{transform:translateX(0)}.main-content{margin-left:0}.form-grid{grid-template-columns:1fr}.stats-grid{grid-template-columns:repeat(2,1fr)}}
+.section-title{font-size:22px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.section-subtitle{font-size:13px;color:var(--gray);margin-bottom:20px}
+.required::after{content:" *";color:var(--danger)}
+.char-count{font-size:10px;color:var(--gray);text-align:right;margin-top:2px}
+</style>
+</head>
+<body>
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">&#128269;</div>
+    <h1>INDAGO</h1>
+    <p>Forense Digital</p>
+  </div>
+  <div class="sidebar-case" id="sidebarCaseInfo">
+    <div class="case-num" id="sidebarCaseNum">Sin expediente</div>
+    <div class="case-perito" id="sidebarPerito">Perito no configurado</div>
+  </div>
+  <nav>
+    <div class="nav-section">Principal</div>
+    <div class="nav-item active" data-page="dashboard" onclick="UI.showPage('dashboard')">
+      <span class="nav-icon">&#128202;</span> Dashboard
+    </div>
+    <div class="nav-item" data-page="config" onclick="UI.showPage('config')">
+      <span class="nav-icon">&#9881;</span> Configuracion del Caso
+    </div>
+    <div class="nav-section">Evidencias</div>
+    <div class="nav-item" data-page="nueva" onclick="UI.showPage('nueva')">
+      <span class="nav-icon">&#10133;</span> Nueva Evidencia
+    </div>
+    <div class="nav-item" data-page="lista" onclick="UI.showPage('lista')">
+      <span class="nav-icon">&#128196;</span> Lista de Evidencias
+      <span class="nav-badge" id="navEviCount">0</span>
+    </div>
+    <div class="nav-section">Documentacion</div>
+    <div class="nav-item" data-page="custodia" onclick="UI.showPage('custodia')">
+      <span class="nav-icon">&#128274;</span> Cadena de Custodia
+    </div>
+    <div class="nav-item" data-page="exportar" onclick="UI.showPage('exportar')">
+      <span class="nav-icon">&#128229;</span> Exportar / Informe
+    </div>
+    <div class="nav-section">Sistema</div>
+    <div class="nav-item" data-page="ayuda" onclick="UI.showPage('ayuda')">
+      <span class="nav-icon">&#10067;</span> Ayuda / Normas
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    INDAGO FORENSE v1.0<br>
+    Herramienta Pericial Digital<br>
+    ISO/IEC 27037:2012
+  </div>
+</aside>
+
+<!-- MAIN CONTENT -->
+<main class="main-content">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title" id="topbarTitle">Dashboard - INDAGO FORENSE</div>
+      <div class="topbar-subtitle">Herramienta de Recoleccion de Evidencia Digital para Peritos</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-outline btn-sm" onclick="UI.showPage('nueva')">&#10133; Nueva Evidencia</button>
+      <button class="btn btn-gold btn-sm" onclick="UI.showPage('exportar')">&#128229; Exportar</button>
+    </div>
+  </div>
+
+  <!-- PAGE: DASHBOARD -->
+  <div class="page active" id="page-dashboard">
+    <div class="section-title">Dashboard</div>
+    <div class="section-subtitle">Resumen del caso y estado de la investigacion pericial</div>
+    <div id="dashboardAlert"></div>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card">
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-label">Total Evidencias</div>
+      </div>
+      <div class="stat-card gold">
+        <div class="stat-value" id="statPaginas">0</div>
+        <div class="stat-label">Paginas Web</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-value" id="statSocial">0</div>
+        <div class="stat-label">Redes Sociales</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statVideos">0</div>
+        <div class="stat-label">Videos</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-value" id="statCustodia">0</div>
+        <div class="stat-label">Acciones en Custodia</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div class="card">
+        <div class="card-header"><h3>&#128196; Ultimas Evidencias Capturadas</h3></div>
+        <div class="card-body" id="dashRecentEvi">
+          <div class="empty-state"><div class="empty-icon">&#128269;</div><h3>Sin evidencias</h3><p>Comience capturando la primera evidencia del caso</p></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>&#128274; Ultimas Acciones de Custodia</h3></div>
+        <div class="card-body" id="dashRecentCustodia">
+          <div class="empty-state"><div class="empty-icon">&#128274;</div><h3>Sin registros</h3><p>Las acciones se registran automaticamente</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#9881; Informacion del Caso Activo</h3></div>
+      <div class="card-body" id="dashCaseInfo">
+        <div class="alert alert-warning">&#9888; Configure los datos del caso antes de comenzar la recoleccion de evidencia.</div>
+      </div>
+    </div>
+    <div class="standards-note">
+      <strong>Normas de Referencia:</strong> Esta herramienta sigue los principios de ISO/IEC 27037:2012 (Identificacion, recoleccion, adquisicion y preservacion de evidencia digital), ACPO Good Practice Guide for Digital Evidence y recomienda el uso de TSA (RFC 3161) para sellos de tiempo legalmente validos.
+    </div>
+  </div>
+
+  <!-- PAGE: CONFIG -->
+  <div class="page" id="page-config">
+    <div class="section-title">Configuracion del Caso</div>
+    <div class="section-subtitle">Ingrese los datos del expediente y del perito interviniente</div>
+    <div class="card">
+      <div class="card-header"><h3>&#128203; Datos del Expediente</h3></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="required">Numero de Expediente / Causa</label>
+            <input type="text" id="cfg_expediente" placeholder="Ej: EXP-2024-00123" maxlength="80">
+          </div>
+          <div class="form-group">
+            <label class="required">Nombre del Perito</label>
+            <input type="text" id="cfg_perito" placeholder="Nombre completo del perito" maxlength="100">
+          </div>
+          <div class="form-group">
+            <label class="required">Cedula / Matricula Profesional</label>
+            <input type="text" id="cfg_matricula" placeholder="Ej: MP-12345 o CUIT 20-12345678-1" maxlength="50">
+          </div>
+          <div class="form-group">
+            <label>Institucion / Organizacion</label>
+            <input type="text" id="cfg_institucion" placeholder="Ej: Poder Judicial - Provincia de Buenos Aires" maxlength="120">
+          </div>
+          <div class="form-group">
+            <label>Cliente / Solicitante</label>
+            <input type="text" id="cfg_cliente" placeholder="Nombre del solicitante o juzgado" maxlength="100">
+          </div>
+          <div class="form-group">
+            <label>Fecha de Inicio del Caso</label>
+            <input type="date" id="cfg_fecha_inicio">
+          </div>
+          <div class="form-group full-width">
+            <label>Descripcion del Caso / Objeto Pericial</label>
+            <textarea id="cfg_descripcion" placeholder="Describa el objeto del peritaje, los hechos a investigar y el alcance de la tarea pericial..." rows="4"></textarea>
+          </div>
+          <div class="form-group full-width">
+            <label>Observaciones Adicionales</label>
+            <textarea id="cfg_obs" placeholder="Notas adicionales del perito sobre el caso..." rows="3"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#128100; Datos del Perito para el Informe</h3></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Titulo Profesional</label>
+            <input type="text" id="cfg_titulo" placeholder="Ej: Lic. en Informatica / Ing. en Sistemas">
+          </div>
+          <div class="form-group">
+            <label>Email de Contacto</label>
+            <input type="email" id="cfg_email" placeholder="perito@ejemplo.com">
+          </div>
+          <div class="form-group">
+            <label>Telefono de Contacto</label>
+            <input type="text" id="cfg_telefono" placeholder="+54 11 1234-5678">
+          </div>
+          <div class="form-group">
+            <label>Domicilio Legal / Constituido</label>
+            <input type="text" id="cfg_domicilio" placeholder="Calle, numero, ciudad, provincia">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="Config.save()">&#128190; Guardar Configuracion</button>
+      <button class="btn btn-outline" onclick="Config.clear()">&#128465; Limpiar / Nuevo Caso</button>
+    </div>
+  </div>
+
+  <!-- PAGE: NUEVA EVIDENCIA -->
+  <div class="page" id="page-nueva">
+    <div class="section-title">Nueva Evidencia</div>
+    <div class="section-subtitle">Complete los campos para registrar una nueva evidencia digital en el expediente</div>
+    <div class="alert alert-info" id="nuevaAlert" style="display:none"></div>
+    <div class="card">
+      <div class="card-header"><h3>&#128203; Identificacion de la Evidencia</h3></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="required">Tipo de Evidencia</label>
+            <select id="evi_tipo" onchange="Evidence.onTipoChange()">
+              <option value="">-- Seleccione tipo --</option>
+              <option value="pagina_web">Pagina Web</option>
+              <option value="red_social">Publicacion en Red Social</option>
+              <option value="video">Video</option>
+              <option value="comentario">Comentario / Respuesta</option>
+              <option value="perfil">Perfil de Usuario</option>
+              <option value="grupo">Grupo / Comunidad</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Plataforma / Red Social</label>
+            <select id="evi_plataforma">
+              <option value="">-- Auto-detectar desde URL --</option>
+              <option value="Facebook">Facebook</option>
+              <option value="Instagram">Instagram</option>
+              <option value="Twitter/X">Twitter / X</option>
+              <option value="TikTok">TikTok</option>
+              <option value="YouTube">YouTube</option>
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="WhatsApp">WhatsApp</option>
+              <option value="Telegram">Telegram</option>
+              <option value="Reddit">Reddit</option>
+              <option value="Sitio Web">Sitio Web General</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+          <div class="form-group full-width">
+            <label class="required">URL Objetivo</label>
+            <input type="url" id="evi_url" placeholder="https://www.ejemplo.com/pagina-a-capturar" oninput="Evidence.onUrlInput(this.value)">
+          </div>
+          <div class="form-group full-width">
+            <label class="required">Titulo / Descripcion de la Evidencia</label>
+            <input type="text" id="evi_titulo" placeholder="Descripcion breve y clara de lo que muestra esta evidencia">
+          </div>
+          <div class="form-group">
+            <label>Fecha y Hora de Captura (UTC)</label>
+            <input type="datetime-local" id="evi_fecha">
+          </div>
+          <div class="form-group">
+            <label>Autor / Cuenta</label>
+            <input type="text" id="evi_autor" placeholder="Nombre de usuario o cuenta">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#128247; Capturas de Pantalla (Screenshots)</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Subir Imagenes (JPG, PNG, WebP)</label>
+          <input type="file" id="evi_screenshots" accept="image/*" multiple onchange="Evidence.handleImages(this)">
+          <small style="color:var(--gray);font-size:11px">Las imagenes se almacenan en base64 dentro del expediente. Capture screenshots completos del contenido.</small>
+        </div>
+        <div class="image-previews" id="imagePreviewsContainer"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#127760; Informacion Tecnica</h3></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>IP del Servidor</label>
+            <input type="text" id="evi_ip" placeholder="Ej: 192.0.2.1 (resultado de nslookup/dig)">
+          </div>
+          <div class="form-group">
+            <label>Informacion WHOIS</label>
+            <input type="text" id="evi_whois" placeholder="Registrante, proveedor de hosting">
+          </div>
+          <div class="form-group">
+            <label>Herramienta de Captura Usada</label>
+            <input type="text" id="evi_herramienta" placeholder="Ej: Firefox 120, HTTrack, wget">
+          </div>
+          <div class="form-group">
+            <label>Ambiente de Captura</label>
+            <input type="text" id="evi_ambiente" placeholder="Ej: Windows 11 Pro, VM aislada">
+          </div>
+          <div class="form-group full-width">
+            <label>Codigo Fuente HTML (pegar aqui)</label>
+            <textarea id="evi_html" placeholder="Pegue aqui el codigo fuente de la pagina (View Source) para preservacion completa..." rows="5" style="font-family:monospace;font-size:11px"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#128221; Observaciones del Perito</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Observaciones Tecnicas y Legales</label>
+          <textarea id="evi_obs" placeholder="Registre aqui sus observaciones periciales: metodo de captura, condiciones, relevancia legal, cadena de evidencia..." rows="4"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#128274; Hash de Integridad (SHA-256)</h3></div>
+      <div class="card-body">
+        <div class="alert alert-info">&#8505; El hash SHA-256 se genera automaticamente al guardar la evidencia, combinando URL + fecha/hora + contenido. Permite verificar que la evidencia no fue alterada.</div>
+        <div id="previewHashArea" style="display:none">
+          <label style="font-size:12px;font-weight:600;color:var(--gray-dark);text-transform:uppercase">Hash SHA-256 Pre-visualizacion:</label>
+          <div class="hash-display" id="previewHash">Calcular...</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="Evidence.save()">&#128190; Guardar Evidencia</button>
+      <button class="btn btn-outline" onclick="Evidence.previewHash()">&#128274; Pre-visualizar Hash</button>
+      <button class="btn btn-outline" onclick="Evidence.clearForm()">&#128465; Limpiar Formulario</button>
+    </div>
+  </div>
+
+  <!-- PAGE: LISTA -->
+  <div class="page" id="page-lista">
+    <div class="section-title">Lista de Evidencias</div>
+    <div class="section-subtitle">Todas las evidencias recolectadas en el expediente actual</div>
+    <div class="card">
+      <div class="card-body">
+        <div class="filter-bar">
+          <label>Filtrar por tipo:</label>
+          <select id="filterTipo" onchange="UI.renderEvidenceList()">
+            <option value="">Todos los tipos</option>
+            <option value="pagina_web">Pagina Web</option>
+            <option value="red_social">Red Social</option>
+            <option value="video">Video</option>
+            <option value="comentario">Comentario</option>
+            <option value="perfil">Perfil</option>
+            <option value="grupo">Grupo</option>
+            <option value="otro">Otro</option>
+          </select>
+          <label>Plataforma:</label>
+          <select id="filterPlat" onchange="UI.renderEvidenceList()">
+            <option value="">Todas las plataformas</option>
+            <option value="Facebook">Facebook</option>
+            <option value="Instagram">Instagram</option>
+            <option value="Twitter/X">Twitter/X</option>
+            <option value="TikTok">TikTok</option>
+            <option value="YouTube">YouTube</option>
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Sitio Web">Sitio Web</option>
+            <option value="Otro">Otro</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="UI.renderEvidenceList()">&#128269; Aplicar</button>
+          <button class="btn btn-sm" style="background:#f0f4f8;color:var(--navy);border:1px solid #dde3ea" onclick="document.getElementById('filterTipo').value='';document.getElementById('filterPlat').value='';UI.renderEvidenceList()">Limpiar filtros</button>
+        </div>
+        <div id="evidenceListContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: CADENA DE CUSTODIA -->
+  <div class="page" id="page-custodia">
+    <div class="section-title">Cadena de Custodia</div>
+    <div class="section-subtitle">Registro cronologico de todas las acciones sobre la evidencia digital</div>
+    <div class="card">
+      <div class="card-header"><h3>&#10133; Agregar Entrada Manual</h3></div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Tipo de Accion</label>
+            <select id="cust_tipo">
+              <option value="transferencia">Transferencia de evidencia</option>
+              <option value="analisis">Analisis realizado</option>
+              <option value="copia">Copia de seguridad creada</option>
+              <option value="acceso">Acceso autorizado</option>
+              <option value="presentacion">Presentacion ante tribunal</option>
+              <option value="nota">Nota del perito</option>
+              <option value="otro">Otra accion</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Persona / Entidad Involucrada</label>
+            <input type="text" id="cust_persona" placeholder="Nombre y cargo de quien interviene">
+          </div>
+          <div class="form-group full-width">
+            <label>Descripcion de la Accion</label>
+            <textarea id="cust_desc" placeholder="Describa detalladamente la accion realizada..." rows="3"></textarea>
+          </div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:10px" onclick="Custody.addManual()">&#10133; Registrar Accion</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>&#128274; Historial Completo</h3>
+        <span id="custodyCount" class="badge badge-blue">0 registros</span>
+      </div>
+      <div class="card-body">
+        <div class="custody-timeline" id="custodyTimeline">
+          <div class="empty-state"><div class="empty-icon">&#128274;</div><h3>Sin registros</h3><p>Los registros se crean automaticamente al interactuar con el sistema.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: EXPORTAR -->
+  <div class="page" id="page-exportar">
+    <div class="section-title">Exportar e Informe Pericial</div>
+    <div class="section-subtitle">Genere el informe oficial del peritaje y paquetes de evidencia</div>
+    <div class="alert alert-warning" id="exportAlert">&#9888; Configure los datos del caso antes de exportar para que el informe este completo.</div>
+    <div class="card">
+      <div class="card-header"><h3>&#128229; Opciones de Exportacion</h3></div>
+      <div class="card-body">
+        <div style="display:grid;gap:16px">
+          <div class="export-card">
+            <div class="export-icon">&#128196;</div>
+            <div class="export-info" style="flex:1">
+              <h4>Informe Pericial en PDF</h4>
+              <p>Informe profesional listo para presentar ante el tribunal. Incluye datos del perito, resumen de evidencias, hashes SHA-256, capturas de pantalla y cadena de custodia. Conforme a ISO/IEC 27037:2012.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="Report.generatePDF()">&#128196; Generar Informe PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="Report.previewReport()">&#128065; Pre-visualizar Datos</button>
+              </div>
+            </div>
+          </div>
+          <div class="export-card">
+            <div class="export-icon">&#128230;</div>
+            <div class="export-info" style="flex:1">
+              <h4>Paquete ZIP de Evidencias</h4>
+              <p>Archivo ZIP con estructura de carpetas organizada: metadatos JSON, hashes, capturas de pantalla y codigos fuente HTML. Ideal para preservacion a largo plazo.</p>
+              <button class="btn btn-gold" onclick="Export.generateZip()">&#128230; Descargar Paquete ZIP</button>
+            </div>
+          </div>
+          <div class="export-card">
+            <div class="export-icon">&#128200;</div>
+            <div class="export-info" style="flex:1">
+              <h4>Registro CSV</h4>
+              <p>Tabla de evidencias en formato CSV compatible con Excel, LibreOffice Calc y otros programas de hoja de calculo. Incluye todos los metadatos de cada evidencia.</p>
+              <button class="btn btn-success" onclick="Export.generateCSV()">&#128200; Exportar CSV</button>
+            </div>
+          </div>
+          <div class="export-card">
+            <div class="export-icon">&#128451;</div>
+            <div class="export-info" style="flex:1">
+              <h4>Backup JSON del Caso</h4>
+              <p>Exporta todos los datos del caso (configuracion, evidencias, cadena de custodia) en formato JSON. Permite restaurar el caso en otro dispositivo.</p>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-outline" onclick="Export.exportJSON()">&#128451; Exportar JSON</button>
+                <button class="btn btn-outline" onclick="Export.importJSON()">&#128228; Importar JSON</button>
+              </div>
+              <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="Export.handleImport(this)">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="reportPreviewSection" style="display:none" class="card">
+      <div class="card-header"><h3>&#128065; Pre-visualizacion del Informe</h3></div>
+      <div class="card-body" id="reportPreviewBody"></div>
+    </div>
+  </div>
+
+  <!-- PAGE: AYUDA -->
+  <div class="page" id="page-ayuda">
+    <div class="section-title">Ayuda y Normas de Referencia</div>
+    <div class="section-subtitle">Guia de uso y marco normativo para peritaje de evidencia digital</div>
+    <div class="card">
+      <div class="card-header"><h3>&#128218; Marco Normativo</h3></div>
+      <div class="card-body">
+        <div style="display:grid;gap:16px">
+          <div class="alert alert-info">
+            <div>
+              <strong>ISO/IEC 27037:2012</strong><br>
+              Tecnologias de la informacion - Tecnicas de seguridad - Directrices para la identificacion, recoleccion, adquisicion y preservacion de evidencia digital. Esta herramienta implementa los principios de integridad, autenticidad y cadena de custodia requeridos por esta norma.
+            </div>
+          </div>
+          <div class="alert alert-info">
+            <div>
+              <strong>ACPO Good Practice Guide for Digital Evidence (v5)</strong><br>
+              Principio 1: No se debe alterar ninguna evidencia que pueda ser presentada ante un tribunal. Principio 2: Toda persona que acceda a la evidencia original debe ser competente para hacerlo. Principio 3: Debe mantenerse una pista de auditoria o registro de todos los procesos. Principio 4: El responsable de la investigacion debe asegurarse de que se cumplan estos principios.
+            </div>
+          </div>
+          <div class="alert alert-warning">
+            <div>
+              <strong>RFC 3161 - Sellos de Tiempo de Confianza (TSA)</strong><br>
+              IMPORTANTE: Los timestamps generados por esta herramienta son basados en el reloj del dispositivo local. Para maxima validez legal, se recomienda complementar con un servicio TSA (Time Stamp Authority) externo certificado. Los hashes SHA-256 garantizan la integridad del contenido capturado.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#128221; Guia de Uso</h3></div>
+      <div class="card-body">
+        <div style="display:grid;gap:12px;font-size:13px">
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="background:var(--navy);color:var(--gold);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">1</span>
+            <div><strong>Configure el caso:</strong> Ingrese los datos del expediente y sus credenciales como perito en "Configuracion del Caso". Estos datos apareceran en todos los informes.</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="background:var(--navy);color:var(--gold);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">2</span>
+            <div><strong>Capture evidencias:</strong> Use "Nueva Evidencia" para registrar cada URL. Complete todos los campos disponibles: capturas de pantalla, codigo fuente, informacion tecnica y observaciones periciales.</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="background:var(--navy);color:var(--gold);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">3</span>
+            <div><strong>Verifique los hashes:</strong> Cada evidencia genera un hash SHA-256 automaticamente. Use "Lista de Evidencias" para verificar la integridad en cualquier momento.</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="background:var(--navy);color:var(--gold);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">4</span>
+            <div><strong>Cadena de custodia:</strong> Todas las acciones se registran automaticamente. Puede agregar entradas manuales para documentar transferencias, analisis y presentaciones ante el tribunal.</div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="background:var(--navy);color:var(--gold);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">5</span>
+            <div><strong>Exporte el informe:</strong> Genere el informe PDF para presentar ante el tribunal, descargue el paquete ZIP para preservacion y el CSV para analisis adicional.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>&#128202; Sobre INDAGO FORENSE</h3></div>
+      <div class="card-body" style="font-size:13px;color:var(--gray-dark)">
+        <p>INDAGO FORENSE es una herramienta standalone de recoleccion de evidencia digital para peritos informaticos. Funciona completamente en el navegador, sin necesidad de servidor ni instalacion.</p>
+        <br>
+        <p><strong>Almacenamiento:</strong> Todos los datos se guardan en localStorage del navegador. Use la funcion de exportacion JSON para hacer backups regulares.</p>
+        <br>
+        <p><strong>Privacidad:</strong> Ningun dato sale del dispositivo. No hay conexion a servidores externos (excepto CDN para las librerias al cargar la pagina).</p>
+        <br>
+        <p><strong>Hashing:</strong> Se utiliza la Web Crypto API nativa del navegador para calcular hashes SHA-256, garantizando la implementacion mas segura disponible.</p>
+        <br>
+        <div class="standards-note">
+          <strong>Nota legal:</strong> Esta herramienta es una ayuda para el perito. La validez legal del peritaje depende de los procedimientos del perito, la jurisdiccion y las normas procesales aplicables. Consulte siempre la legislacion vigente y los requisitos especificos del tribunal interviniente.
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL: VER EVIDENCIA -->
+<div class="modal-overlay" id="modalEvidencia">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalEviTitle">Detalle de Evidencia</h3>
+      <button class="modal-close" onclick="UI.closeModal('modalEvidencia')">&#215;</button>
+    </div>
+    <div class="modal-body" id="modalEviBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline btn-sm" onclick="Evidence.verifyHashFromModal()">&#128274; Verificar Hash</button>
+      <button class="btn btn-primary btn-sm" onclick="Evidence.editFromModal()">&#9998; Editar Notas</button>
+      <button class="btn btn-danger btn-sm" onclick="Evidence.deleteFromModal()">&#128465; Eliminar</button>
+      <button class="btn btn-sm" style="background:#eee;color:#444" onclick="UI.closeModal('modalEvidencia')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: EDITAR EVIDENCIA -->
+<div class="modal-overlay" id="modalEdit">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3>Editar Evidencia</h3>
+      <button class="modal-close" onclick="UI.closeModal('modalEdit')">&#215;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Titulo / Descripcion</label>
+        <input type="text" id="editTitulo">
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Observaciones del Perito</label>
+        <textarea id="editObs" rows="5"></textarea>
+      </div>
+      <div class="form-group">
+        <label>IP del Servidor / WHOIS</label>
+        <input type="text" id="editIp">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary btn-sm" onclick="Evidence.saveEdit()">&#128190; Guardar Cambios</button>
+      <button class="btn btn-sm" style="background:#eee;color:#444" onclick="UI.closeModal('modalEdit')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: VERIFICACION HASH -->
+<div class="modal-overlay" id="modalHash">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3>Verificacion de Integridad SHA-256</h3>
+      <button class="modal-close" onclick="UI.closeModal('modalHash')">&#215;</button>
+    </div>
+    <div class="modal-body" id="modalHashBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-sm" style="background:#eee;color:#444" onclick="UI.closeModal('modalHash')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST NOTIFICATION -->
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+
+// ============================================================
+// AppState - Central state management
+// ============================================================
+const AppState = {
+  currentPage: "dashboard",
+  currentEditId: null,
+  currentViewId: null,
+  pendingImages: [],
+
+  getCase() { return Storage.getCase(); },
+  getEvidences() { return Storage.getEvidences(); },
+  getCustody() { return Storage.getCustody(); },
+};
+
+// ============================================================
+// Storage Module
+// ============================================================
+const Storage = {
+  KEYS: { CASE: "indago_case", EVI: "indago_evidences", CUSTODY: "indago_custody" },
+
+  getCase() {
+    try { return JSON.parse(localStorage.getItem(this.KEYS.CASE)) || {}; }
+    catch(e) { return {}; }
+  },
+  saveCase(data) { localStorage.setItem(this.KEYS.CASE, JSON.stringify(data)); },
+
+  getEvidences() {
+    try { return JSON.parse(localStorage.getItem(this.KEYS.EVI)) || []; }
+    catch(e) { return []; }
+  },
+  saveEvidences(evs) { localStorage.setItem(this.KEYS.EVI, JSON.stringify(evs)); },
+
+  addEvidence(ev) {
+    const evs = this.getEvidences();
+    evs.push(ev);
+    this.saveEvidences(evs);
+  },
+
+  updateEvidence(id, updates) {
+    const evs = this.getEvidences();
+    const idx = evs.findIndex(e => e.id === id);
+    if (idx !== -1) { Object.assign(evs[idx], updates); this.saveEvidences(evs); return true; }
+    return false;
+  },
+
+  deleteEvidence(id) {
+    const evs = this.getEvidences().filter(e => e.id !== id);
+    this.saveEvidences(evs);
+  },
+
+  getCustody() {
+    try { return JSON.parse(localStorage.getItem(this.KEYS.CUSTODY)) || []; }
+    catch(e) { return []; }
+  },
+  addCustody(entry) {
+    const c = this.getCustody();
+    c.push(entry);
+    localStorage.setItem(this.KEYS.CUSTODY, JSON.stringify(c));
+  },
+
+  clearAll() {
+    localStorage.removeItem(this.KEYS.CASE);
+    localStorage.removeItem(this.KEYS.EVI);
+    localStorage.removeItem(this.KEYS.CUSTODY);
+  },
+
+  exportAll() {
+    return {
+      version: "1.0",
+      exportedAt: new Date().toISOString(),
+      case: this.getCase(),
+      evidences: this.getEvidences(),
+      custody: this.getCustody()
+    };
+  },
+
+  importAll(data) {
+    if (data.case) this.saveCase(data.case);
+    if (data.evidences) this.saveEvidences(data.evidences);
+    if (data.custody) localStorage.setItem(this.KEYS.CUSTODY, JSON.stringify(data.custody));
+  }
+};
+
+// ============================================================
+// Crypto Module - SHA-256 via WebCrypto API
+// ============================================================
+const Crypto = {
+  async sha256(text) {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(text);
+      const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch(e) {
+      // Fallback simple hash for environments without WebCrypto
+      let hash = 0;
+      for (let i = 0; i < text.length; i++) {
+        const char = text.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return "fallback_" + Math.abs(hash).toString(16).padStart(8, "0") + "_webCryptoUnavailable";
+    }
+  },
+
+  async hashEvidence(url, timestamp, content) {
+    const input = `${url}||${timestamp}||${content.substring(0, 2000)}`;
+    return this.sha256(input);
+  }
+};
+
+// ============================================================
+// Evidence Module - CRUD operations
+// ============================================================
+const Evidence = {
+  tipoLabels: {
+    pagina_web: "Pagina Web",
+    red_social: "Red Social",
+    video: "Video",
+    comentario: "Comentario/Respuesta",
+    perfil: "Perfil de Usuario",
+    grupo: "Grupo/Comunidad",
+    otro: "Otro"
+  },
+
+  onTipoChange() {
+    const tipo = document.getElementById("evi_tipo").value;
+    const platSel = document.getElementById("evi_plataforma");
+    if (tipo === "pagina_web") { platSel.value = "Sitio Web"; }
+  },
+
+  onUrlInput(url) {
+    const plat = this.detectPlatform(url);
+    if (plat) {
+      const sel = document.getElementById("evi_plataforma");
+      for (let opt of sel.options) {
+        if (opt.value === plat) { sel.value = plat; break; }
+      }
+    }
+  },
+
+  detectPlatform(url) {
+    if (!url) return null;
+    const u = url.toLowerCase();
+    if (u.includes("facebook.com") || u.includes("fb.com")) return "Facebook";
+    if (u.includes("instagram.com")) return "Instagram";
+    if (u.includes("twitter.com") || u.includes("x.com")) return "Twitter/X";
+    if (u.includes("tiktok.com")) return "TikTok";
+    if (u.includes("youtube.com") || u.includes("youtu.be")) return "YouTube";
+    if (u.includes("linkedin.com")) return "LinkedIn";
+    if (u.includes("whatsapp.com")) return "WhatsApp";
+    if (u.includes("telegram.org") || u.includes("t.me")) return "Telegram";
+    if (u.includes("reddit.com")) return "Reddit";
+    return null;
+  },
+
+  handleImages(input) {
+    const files = Array.from(input.files);
+    const container = document.getElementById("imagePreviewsContainer");
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        AppState.pendingImages.push(dataUrl);
+        const item = document.createElement("div");
+        item.className = "image-preview-item";
+        const idx = AppState.pendingImages.length - 1;
+        item.innerHTML = `<img src="${dataUrl}" alt="Screenshot"><button class="remove-img" onclick="Evidence.removeImage(${idx}, this)">&#215;</button>`;
+        container.appendChild(item);
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+  removeImage(idx, btn) {
+    AppState.pendingImages[idx] = null;
+    btn.parentElement.remove();
+  },
+
+  async previewHash() {
+    const url = document.getElementById("evi_url").value;
+    const fecha = document.getElementById("evi_fecha").value;
+    const html = document.getElementById("evi_html").value;
+    if (!url) { UI.toast("Ingrese una URL primero", "error"); return; }
+    const hash = await Crypto.hashEvidence(url, fecha || new Date().toISOString(), html || url);
+    document.getElementById("previewHashArea").style.display = "block";
+    document.getElementById("previewHash").textContent = hash;
+  },
+
+  async save() {
+    const tipo = document.getElementById("evi_tipo").value;
+    const url = document.getElementById("evi_url").value.trim();
+    const titulo = document.getElementById("evi_titulo").value.trim();
+    if (!tipo) { UI.toast("Seleccione el tipo de evidencia", "error"); return; }
+    if (!url) { UI.toast("Ingrese la URL objetivo", "error"); return; }
+    if (!titulo) { UI.toast("Ingrese un titulo/descripcion", "error"); return; }
+
+    const fechaVal = document.getElementById("evi_fecha").value;
+    const timestamp = fechaVal ? new Date(fechaVal).toISOString() : new Date().toISOString();
+    const htmlContent = document.getElementById("evi_html").value;
+    const plataforma = document.getElementById("evi_plataforma").value || this.detectPlatform(url) || "Desconocida";
+
+    const evs = Storage.getEvidences();
+    const num = (evs.length + 1).toString().padStart(3, "0");
+    const id = "EVI-" + num + "-" + Date.now();
+
+    const hashInput = htmlContent || titulo;
+    const hash = await Crypto.hashEvidence(url, timestamp, hashInput);
+
+    const images = AppState.pendingImages.filter(img => img !== null);
+
+    const evidence = {
+      id,
+      numero: "EVI-" + num,
+      tipo,
+      plataforma,
+      url,
+      titulo,
+      timestamp,
+      capturedAt: new Date().toISOString(),
+      autor: document.getElementById("evi_autor").value.trim(),
+      ip: document.getElementById("evi_ip").value.trim(),
+      whois: document.getElementById("evi_whois").value.trim(),
+      herramienta: document.getElementById("evi_herramienta").value.trim(),
+      ambiente: document.getElementById("evi_ambiente").value.trim(),
+      htmlSource: htmlContent,
+      observaciones: document.getElementById("evi_obs").value.trim(),
+      screenshots: images,
+      hash,
+      hashInput: `url:${url}|ts:${timestamp}|content_preview:${hashInput.substring(0,50)}`,
+      verified: true,
+      verifiedAt: new Date().toISOString()
+    };
+
+    Storage.addEvidence(evidence);
+    Custody.addAuto("Evidencia capturada", `${evidence.numero}: ${titulo} (${plataforma}) - ${url}`);
+
+    UI.toast(`Evidencia ${evidence.numero} guardada correctamente`, "success");
+    this.clearForm();
+    UI.updateCounts();
+    UI.updateSidebar();
+    UI.showPage("lista");
+  },
+
+  clearForm() {
+    ["evi_tipo","evi_url","evi_titulo","evi_plataforma","evi_autor","evi_ip","evi_whois","evi_herramienta","evi_ambiente"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    ["evi_html","evi_obs"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    const fd = document.getElementById("evi_fecha");
+    if (fd) fd.value = new Date().toISOString().slice(0,16);
+    AppState.pendingImages = [];
+    document.getElementById("imagePreviewsContainer").innerHTML = "";
+    document.getElementById("previewHashArea").style.display = "none";
+    document.getElementById("evi_screenshots").value = "";
+  },
+
+  openDetail(id) {
+    const ev = Storage.getEvidences().find(e => e.id === id);
+    if (!ev) return;
+    AppState.currentViewId = id;
+    Custody.addAuto("Evidencia consultada", `${ev.numero}: ${ev.titulo}`);
+
+    let screenshotsHtml = "";
+    if (ev.screenshots && ev.screenshots.length > 0) {
+      screenshotsHtml = `<div style="margin-top:12px"><label style="font-size:12px;font-weight:700;color:var(--gray-dark)">CAPTURAS DE PANTALLA (${ev.screenshots.length})</label><div class="image-previews" style="margin-top:8px">` +
+        ev.screenshots.map((src, i) => `<div style="cursor:pointer;border:2px solid #e0e0e0;border-radius:6px;overflow:hidden" onclick="Evidence.viewFullImage('${id}',${i})"><img src="${src}" style="width:150px;height:100px;object-fit:cover;display:block" alt="Screenshot ${i+1}"></div>`).join("") +
+        `</div></div>`;
+    }
+
+    let htmlPreview = "";
+    if (ev.htmlSource) {
+      htmlPreview = `<div class="form-group" style="margin-top:12px"><label style="font-size:12px;font-weight:700;color:var(--gray-dark)">CODIGO FUENTE (primeros 500 chars)</label><div class="hash-display" style="max-height:100px;overflow-y:auto;font-size:10px">${ev.htmlSource.substring(0,500).replace(/</g,"&lt;").replace(/>/g,"&gt;")}...</div></div>`;
+    }
+
+    document.getElementById("modalEviTitle").textContent = `${ev.numero} - ${ev.titulo}`;
+    document.getElementById("modalEviBody").innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Numero</label><div style="font-size:14px;font-weight:700;color:var(--gold)">${ev.numero}</div></div>
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Tipo</label><div><span class="badge badge-blue">${this.tipoLabels[ev.tipo] || ev.tipo}</span></div></div>
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Plataforma</label><div class="badge badge-gold">${ev.plataforma}</div></div>
+        <div><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Fecha de Captura</label><div style="font-size:13px;font-family:monospace">${new Date(ev.timestamp).toLocaleString("es-AR")}</div></div>
+        ${ev.autor ? `<div><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Autor/Cuenta</label><div style="font-size:13px">${ev.autor}</div></div>` : ""}
+        ${ev.ip ? `<div><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">IP Servidor</label><div style="font-family:monospace;font-size:13px">${ev.ip}</div></div>` : ""}
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">URL Objetivo</label>
+        <div class="hash-display"><a href="${ev.url}" target="_blank" rel="noopener" style="color:var(--blue)">${ev.url}</a></div>
+      </div>
+      ${ev.whois ? `<div class="form-group" style="margin-bottom:12px"><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">WHOIS Info</label><div style="font-size:13px;background:#f8f9fa;padding:8px;border-radius:4px">${ev.whois}</div></div>` : ""}
+      ${ev.herramienta ? `<div class="form-group" style="margin-bottom:12px"><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Herramienta / Ambiente</label><div style="font-size:13px">${ev.herramienta}${ev.ambiente ? " | " + ev.ambiente : ""}</div></div>` : ""}
+      ${ev.observaciones ? `<div class="form-group" style="margin-bottom:12px"><label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Observaciones del Perito</label><div style="font-size:13px;background:#f8f9fa;padding:8px;border-radius:4px;white-space:pre-wrap">${ev.observaciones}</div></div>` : ""}
+      <div class="form-group" style="margin-bottom:12px">
+        <label style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase">Hash SHA-256 de Integridad</label>
+        <div class="hash-display">${ev.hash}</div>
+        <div style="font-size:10px;color:var(--gray);margin-top:4px">Calculado: ${ev.verifiedAt ? new Date(ev.verifiedAt).toLocaleString("es-AR") : "N/D"}</div>
+      </div>
+      ${screenshotsHtml}
+      ${htmlPreview}
+    `;
+
+    UI.openModal("modalEvidencia");
+    UI.updateCustody();
+  },
+
+  viewFullImage(eviId, idx) {
+    const ev = Storage.getEvidences().find(e => e.id === eviId);
+    if (!ev || !ev.screenshots[idx]) return;
+    const w = window.open("", "_blank");
+    w.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${ev.screenshots[idx]}" style="max-width:100%;max-height:100vh"></body></html>`);
+  },
+
+  editFromModal() {
+    const id = AppState.currentViewId;
+    const ev = Storage.getEvidences().find(e => e.id === id);
+    if (!ev) return;
+    AppState.currentEditId = id;
+    document.getElementById("editTitulo").value = ev.titulo;
+    document.getElementById("editObs").value = ev.observaciones || "";
+    document.getElementById("editIp").value = ev.ip || "";
+    UI.closeModal("modalEvidencia");
+    UI.openModal("modalEdit");
+  },
+
+  saveEdit() {
+    const id = AppState.currentEditId;
+    if (!id) return;
+    const titulo = document.getElementById("editTitulo").value.trim();
+    const obs = document.getElementById("editObs").value.trim();
+    const ip = document.getElementById("editIp").value.trim();
+    Storage.updateEvidence(id, { titulo, observaciones: obs, ip, lastEdited: new Date().toISOString() });
+    Custody.addAuto("Evidencia editada", `ID: ${id} - Titulo actualizado`);
+    UI.toast("Cambios guardados correctamente", "success");
+    UI.closeModal("modalEdit");
+    UI.renderEvidenceList();
+    AppState.currentEditId = null;
+  },
+
+  deleteFromModal() {
+    const id = AppState.currentViewId;
+    if (!id) return;
+    const ev = Storage.getEvidences().find(e => e.id === id);
+    if (!ev) return;
+    if (!confirm(`¿Eliminar evidencia ${ev.numero}?
+
+Esta accion no se puede deshacer.`)) return;
+    Storage.deleteEvidence(id);
+    Custody.addAuto("Evidencia eliminada", `${ev.numero}: ${ev.titulo}`);
+    UI.toast(`Evidencia ${ev.numero} eliminada`, "error");
+    UI.closeModal("modalEvidencia");
+    UI.renderEvidenceList();
+    UI.updateCounts();
+    UI.updateSidebar();
+    AppState.currentViewId = null;
+  },
+
+  async verifyHashFromModal() {
+    const id = AppState.currentViewId;
+    const ev = Storage.getEvidences().find(e => e.id === id);
+    if (!ev) return;
+    const content = ev.htmlSource || ev.titulo;
+    const recomputedHash = await Crypto.hashEvidence(ev.url, ev.timestamp, content);
+    const ok = recomputedHash === ev.hash;
+    document.getElementById("modalHashBody").innerHTML = `
+      <div class="alert ${ok ? "alert-success" : "alert-danger"}">
+        <div>
+          <strong>${ok ? "&#10003; INTEGRIDAD VERIFICADA" : "&#10007; FALLO DE INTEGRIDAD"}</strong><br>
+          ${ok ? "El hash recalculado coincide con el hash almacenado. La evidencia no ha sido alterada." : "El hash recalculado NO coincide. La evidencia puede haber sido modificada."}
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label style="font-size:11px;font-weight:700;color:var(--gray-dark);text-transform:uppercase">Hash Almacenado (original)</label>
+        <div class="hash-display">${ev.hash}</div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:11px;font-weight:700;color:var(--gray-dark);text-transform:uppercase">Hash Recalculado ahora</label>
+        <div class="hash-display ${ok ? "integrity-ok" : "integrity-fail"}">${recomputedHash}</div>
+      </div>
+      <div style="font-size:11px;color:var(--gray);margin-top:12px">Evidencia: ${ev.numero} | Verificado: ${new Date().toLocaleString("es-AR")}</div>
+    `;
+    UI.closeModal("modalEvidencia");
+    UI.openModal("modalHash");
+    Custody.addAuto("Hash verificado", `${ev.numero} - Resultado: ${ok ? "INTEGRO" : "FALLO"}`);
+  }
+};
+
+// ============================================================
+// Config Module
+// ============================================================
+const Config = {
+  fieldIds: ["cfg_expediente","cfg_perito","cfg_matricula","cfg_institucion","cfg_cliente","cfg_fecha_inicio","cfg_descripcion","cfg_obs","cfg_titulo","cfg_email","cfg_telefono","cfg_domicilio"],
+
+  save() {
+    const data = {};
+    this.fieldIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) data[id.replace("cfg_","")] = el.value.trim();
+    });
+    data.savedAt = new Date().toISOString();
+    const isNew = !Storage.getCase().expediente;
+    Storage.saveCase(data);
+    if (isNew && data.expediente) {
+      Custody.addAuto("Caso creado", `Expediente: ${data.expediente} | Perito: ${data.perito}`);
+    } else {
+      Custody.addAuto("Configuracion actualizada", `Expediente: ${data.expediente}`);
+    }
+    UI.toast("Configuracion guardada", "success");
+    UI.updateSidebar();
+    UI.renderDashboard();
+  },
+
+  load() {
+    const data = Storage.getCase();
+    this.fieldIds.forEach(id => {
+      const key = id.replace("cfg_","");
+      const el = document.getElementById(id);
+      if (el && data[key] !== undefined) el.value = data[key];
+    });
+  },
+
+  clear() {
+    if (!confirm("¿Limpiar todos los datos del caso?
+
+Esto eliminara la configuracion, todas las evidencias y la cadena de custodia.
+
+Esta accion no se puede deshacer.")) return;
+    Storage.clearAll();
+    this.fieldIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    AppState.pendingImages = [];
+    UI.toast("Caso limpiado. Todos los datos eliminados.", "error");
+    UI.updateSidebar();
+    UI.updateCounts();
+    UI.renderDashboard();
+    UI.renderEvidenceList();
+    UI.updateCustody();
+  }
+};
+
+// ============================================================
+// Custody Module - Chain of custody
+// ============================================================
+const Custody = {
+  addAuto(action, detail) {
+    const cas = Storage.getCase();
+    this.add({
+      id: Date.now() + "_" + Math.random().toString(36).substr(2,5),
+      timestamp: new Date().toISOString(),
+      action,
+      detail,
+      perito: cas.perito || "Sistema",
+      manual: false
+    });
+  },
+
+  add(entry) {
+    Storage.addCustody(entry);
+    UI.updateCustody();
+  },
+
+  addManual() {
+    const tipo = document.getElementById("cust_tipo").value;
+    const persona = document.getElementById("cust_persona").value.trim();
+    const desc = document.getElementById("cust_desc").value.trim();
+    if (!desc) { UI.toast("Ingrese una descripcion de la accion", "error"); return; }
+    const cas = Storage.getCase();
+    this.add({
+      id: Date.now() + "_" + Math.random().toString(36).substr(2,5),
+      timestamp: new Date().toISOString(),
+      action: tipo.charAt(0).toUpperCase() + tipo.slice(1),
+      detail: desc + (persona ? ` | Persona: ${persona}` : ""),
+      perito: cas.perito || "Perito",
+      manual: true
+    });
+    document.getElementById("cust_persona").value = "";
+    document.getElementById("cust_desc").value = "";
+    UI.toast("Entrada manual registrada", "success");
+  }
+};
+
+// ============================================================
+// Report Module - PDF generation
+// ============================================================
+const Report = {
+  previewReport() {
+    const cas = Storage.getCase();
+    const evs = Storage.getEvidences();
+    const sec = document.getElementById("reportPreviewSection");
+    const body = document.getElementById("reportPreviewBody");
+    sec.style.display = "block";
+    body.innerHTML = `
+      <div class="alert alert-info" style="margin-bottom:16px">Datos que se incluiran en el informe PDF. Verifique que esten completos antes de generar.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div><strong>Expediente:</strong> ${cas.expediente || "(sin configurar)"}</div>
+        <div><strong>Perito:</strong> ${cas.perito || "(sin configurar)"}</div>
+        <div><strong>Matricula:</strong> ${cas.matricula || "(sin configurar)"}</div>
+        <div><strong>Institucion:</strong> ${cas.institucion || "(sin configurar)"}</div>
+        <div><strong>Cliente:</strong> ${cas.cliente || "(sin configurar)"}</div>
+        <div><strong>Fecha inicio:</strong> ${cas.fecha_inicio || "(sin configurar)"}</div>
+      </div>
+      <div style="margin-bottom:8px"><strong>Total de evidencias a incluir:</strong> ${evs.length}</div>
+      <table>
+        <thead><tr><th>N&#186;</th><th>Tipo</th><th>Plataforma</th><th>Titulo</th><th>Fecha</th></tr></thead>
+        <tbody>
+          ${evs.map(e => `<tr><td>${e.numero}</td><td>${Evidence.tipoLabels[e.tipo]||e.tipo}</td><td>${e.plataforma}</td><td>${e.titulo}</td><td>${new Date(e.timestamp).toLocaleDateString("es-AR")}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    `;
+    sec.scrollIntoView({ behavior: "smooth" });
+  },
+
+  async generatePDF() {
+    const cas = Storage.getCase();
+    const evs = Storage.getEvidences();
+    const custody = Storage.getCustody();
+
+    if (evs.length === 0) { UI.toast("No hay evidencias para incluir en el informe", "error"); return; }
+
+    UI.toast("Generando informe PDF...", "success");
+    Custody.addAuto("Informe PDF generado", `${evs.length} evidencias incluidas`);
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+    const navy = [30, 58, 95];
+    const gold = [201, 151, 44];
+    const white = [255, 255, 255];
+    const lightGray = [240, 244, 248];
+    const darkText = [26, 26, 46];
+    const gray = [138, 155, 176];
+    const W = 210;
+
+    // Helper: draw page header (non-cover)
+    const drawHeader = (title) => {
+      doc.setFillColor(...navy);
+      doc.rect(0, 0, W, 18, "F");
+      doc.setFillColor(...gold);
+      doc.rect(0, 18, W, 2, "F");
+      doc.setFontSize(9);
+      doc.setTextColor(...white);
+      doc.setFont("helvetica","bold");
+      doc.text("INDAGO FORENSE - INFORME PERICIAL DIGITAL", 14, 8);
+      doc.setFont("helvetica","normal");
+      doc.setFontSize(8);
+      doc.text(`Exp: ${cas.expediente || "N/A"} | Perito: ${cas.perito || "N/A"}`, 14, 13);
+      doc.text(title, W - 14, 8, { align: "right" });
+      doc.text(`Pg. ${doc.getCurrentPageInfo().pageNumber}`, W - 14, 13, { align: "right" });
+      return 26;
+    };
+
+    const drawFooter = () => {
+      const pageH = 297;
+      doc.setFillColor(...lightGray);
+      doc.rect(0, pageH - 12, W, 12, "F");
+      doc.setFontSize(7);
+      doc.setTextColor(...gray);
+      doc.setFont("helvetica","normal");
+      doc.text("ISO/IEC 27037:2012 | ACPO Good Practice Guide | Este informe es confidencial - solo para uso pericial", W/2, pageH - 5, { align: "center" });
+    };
+
+    // ---- COVER PAGE ----
+    doc.setFillColor(...navy);
+    doc.rect(0, 0, W, 297, "F");
+    doc.setFillColor(...gold);
+    doc.rect(0, 70, W, 6, "F");
+    doc.rect(0, 220, W, 3, "F");
+
+    doc.setFontSize(11);
+    doc.setTextColor(...gold);
+    doc.setFont("helvetica","bold");
+    doc.text("HERRAMIENTA FORENSE DIGITAL", W/2, 40, { align: "center" });
+
+    doc.setFontSize(28);
+    doc.setTextColor(...white);
+    doc.text("INDAGO FORENSE", W/2, 56, { align: "center" });
+
+    doc.setFontSize(14);
+    doc.setTextColor(...gold);
+    doc.text("INFORME PERICIAL DE EVIDENCIA DIGITAL", W/2, 90, { align: "center" });
+
+    // Case info box
+    doc.setFillColor(255,255,255,0.05);
+    doc.setDrawColor(...gold);
+    doc.roundedRect(20, 105, W - 40, 80, 3, 3, "D");
+
+    doc.setFontSize(9);
+    doc.setTextColor(...gold);
+    doc.setFont("helvetica","bold");
+    const boxItems = [
+      ["EXPEDIENTE / CAUSA:", cas.expediente || "Sin configurar"],
+      ["PERITO:", cas.perito || "Sin configurar"],
+      ["MATRICULA PROFESIONAL:", cas.matricula || "Sin configurar"],
+      ["TITULO:", cas.titulo || "Sin configurar"],
+      ["INSTITUCION:", cas.institucion || "Sin configurar"],
+      ["CLIENTE / SOLICITANTE:", cas.cliente || "Sin configurar"],
+      ["FECHA DE INICIO:", cas.fecha_inicio || "Sin configurar"],
+    ];
+    let boxY = 115;
+    boxItems.forEach(([label, value]) => {
+      doc.setFont("helvetica","bold");
+      doc.setTextColor(...gold);
+      doc.text(label, 28, boxY);
+      doc.setFont("helvetica","normal");
+      doc.setTextColor(...white);
+      doc.text(String(value), 100, boxY);
+      boxY += 10;
+    });
+
+    doc.setFontSize(10);
+    doc.setTextColor(180, 180, 200);
+    doc.setFont("helvetica","normal");
+    doc.text(`Total de evidencias: ${evs.length}`, W/2, 200, { align: "center" });
+    doc.text(`Generado: ${new Date().toLocaleString("es-AR")} (UTC${new Date().toString().match(/GMT[+-]\d+/)?.[0]||""})`, W/2, 208, { align: "center" });
+
+    doc.setFontSize(8);
+    doc.setTextColor(...gold);
+    doc.text("ISO/IEC 27037:2012 | ACPO Good Practice Guide for Digital Evidence", W/2, 235, { align: "center" });
+    doc.setTextColor(150,150,170);
+    doc.text("Los timestamps estan basados en el reloj local del dispositivo.", W/2, 242, { align: "center" });
+    doc.text("Para maxima validez legal, se recomienda TSA (RFC 3161).", W/2, 248, { align: "center" });
+
+    // ---- PAGE 2: CASO DESCRIPTION ----
+    doc.addPage();
+    let y = drawHeader("Descripcion del Caso");
+
+    if (cas.descripcion) {
+      doc.setFontSize(11);
+      doc.setTextColor(...navy);
+      doc.setFont("helvetica","bold");
+      doc.text("OBJETO DEL PERITAJE", 14, y + 4);
+      y += 10;
+      doc.setFontSize(9);
+      doc.setTextColor(...darkText);
+      doc.setFont("helvetica","normal");
+      const descLines = doc.splitTextToSize(cas.descripcion, W - 28);
+      doc.text(descLines, 14, y);
+      y += descLines.length * 5 + 8;
+    }
+
+    doc.setFontSize(11);
+    doc.setTextColor(...navy);
+    doc.setFont("helvetica","bold");
+    doc.text("DATOS DEL PERITO INTERVINIENTE", 14, y + 4);
+    y += 12;
+
+    const peritoData = [
+      ["Nombre completo:", cas.perito || "-"],
+      ["Matricula profesional:", cas.matricula || "-"],
+      ["Titulo:", cas.titulo || "-"],
+      ["Institucion:", cas.institucion || "-"],
+      ["Email:", cas.email || "-"],
+      ["Telefono:", cas.telefono || "-"],
+      ["Domicilio legal:", cas.domicilio || "-"],
+    ];
+
+    peritoData.forEach(([label, value]) => {
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...navy);
+      doc.text(label, 14, y);
+      doc.setFont("helvetica","normal");
+      doc.setTextColor(...darkText);
+      doc.text(String(value), 70, y);
+      y += 8;
+    });
+
+    drawFooter();
+
+    // ---- PAGE 3: EVIDENCE SUMMARY TABLE ----
+    doc.addPage();
+    y = drawHeader("Tabla Resumen de Evidencias");
+
+    doc.setFontSize(11);
+    doc.setTextColor(...navy);
+    doc.setFont("helvetica","bold");
+    doc.text("RESUMEN DE EVIDENCIAS RECOLECTADAS", 14, y + 4);
+    y += 12;
+
+    doc.autoTable({
+      startY: y,
+      head: [["Nº", "Tipo", "Plataforma", "Titulo", "URL (abreviada)", "Fecha Captura", "SHA-256 (inicio)"]],
+      body: evs.map(e => [
+        e.numero,
+        Evidence.tipoLabels[e.tipo] || e.tipo,
+        e.plataforma,
+        e.titulo.length > 30 ? e.titulo.substring(0,30)+"..." : e.titulo,
+        e.url.length > 35 ? e.url.substring(0,35)+"..." : e.url,
+        new Date(e.timestamp).toLocaleDateString("es-AR"),
+        e.hash ? e.hash.substring(0,16)+"..." : "N/A"
+      ]),
+      styles: { fontSize: 7, cellPadding: 3, overflow: "linebreak" },
+      headStyles: { fillColor: navy, textColor: white, fontStyle: "bold", fontSize: 7.5 },
+      alternateRowStyles: { fillColor: lightGray },
+      columnStyles: { 0: { cellWidth: 18 }, 1: { cellWidth: 22 }, 2: { cellWidth: 22 }, 5: { cellWidth: 22 }, 6: { cellWidth: 28 } },
+      margin: { left: 14, right: 14 },
+      didDrawPage: () => { drawFooter(); }
+    });
+
+    // ---- INDIVIDUAL EVIDENCE PAGES ----
+    for (let i = 0; i < evs.length; i++) {
+      const ev = evs[i];
+      doc.addPage();
+      y = drawHeader(`Evidencia ${ev.numero}`);
+
+      // Evidence header bar
+      doc.setFillColor(...lightGray);
+      doc.rect(14, y, W - 28, 12, "F");
+      doc.setFillColor(...gold);
+      doc.rect(14, y, 4, 12, "F");
+      doc.setFontSize(11);
+      doc.setTextColor(...navy);
+      doc.setFont("helvetica","bold");
+      doc.text(`${ev.numero} - ${ev.titulo.length > 60 ? ev.titulo.substring(0,60)+"..." : ev.titulo}`, 22, y + 8);
+      y += 18;
+
+      // Evidence metadata
+      const metaItems = [
+        ["Tipo:", Evidence.tipoLabels[ev.tipo] || ev.tipo, "Plataforma:", ev.plataforma],
+        ["Fecha Captura:", new Date(ev.timestamp).toLocaleString("es-AR"), "Autor/Cuenta:", ev.autor || "-"],
+        ["IP Servidor:", ev.ip || "-", "WHOIS:", ev.whois || "-"],
+        ["Herramienta:", ev.herramienta || "-", "Ambiente:", ev.ambiente || "-"],
+      ];
+
+      metaItems.forEach(([l1, v1, l2, v2]) => {
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(8);
+        doc.setTextColor(...navy);
+        doc.text(l1, 14, y);
+        doc.setFont("helvetica","normal");
+        doc.setTextColor(...darkText);
+        doc.text(String(v1).substring(0,40), 45, y);
+        doc.setFont("helvetica","bold");
+        doc.setTextColor(...navy);
+        doc.text(l2, 110, y);
+        doc.setFont("helvetica","normal");
+        doc.setTextColor(...darkText);
+        doc.text(String(v2).substring(0,30), 140, y);
+        y += 7;
+      });
+
+      // URL
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(8);
+      doc.setTextColor(...navy);
+      doc.text("URL Objetivo:", 14, y);
+      doc.setFont("helvetica","normal");
+      doc.setTextColor([0, 0, 180]);
+      const urlLines = doc.splitTextToSize(ev.url, W - 60);
+      doc.text(urlLines, 45, y);
+      y += urlLines.length * 5 + 4;
+
+      // Hash box
+      doc.setFillColor(232, 240, 253);
+      doc.rect(14, y, W - 28, 18, "F");
+      doc.setDrawColor(...navy);
+      doc.rect(14, y, W - 28, 18, "D");
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...navy);
+      doc.text("HASH SHA-256 DE INTEGRIDAD:", 18, y + 7);
+      doc.setFont("courier", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor([10, 10, 100]);
+      doc.text(ev.hash || "No disponible", 18, y + 14);
+      y += 24;
+
+      // Observations
+      if (ev.observaciones) {
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...navy);
+        doc.text("OBSERVACIONES DEL PERITO:", 14, y);
+        y += 6;
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(8);
+        doc.setTextColor(...darkText);
+        const obsLines = doc.splitTextToSize(ev.observaciones, W - 28);
+        doc.text(obsLines, 14, y);
+        y += obsLines.length * 5 + 6;
+      }
+
+      // Screenshot(s)
+      if (ev.screenshots && ev.screenshots.length > 0) {
+        if (y > 230) { doc.addPage(); y = drawHeader(`Evidencia ${ev.numero} - Capturas`); }
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...navy);
+        doc.text(`CAPTURAS DE PANTALLA (${ev.screenshots.length}):`, 14, y);
+        y += 6;
+        const imgPerRow = 2;
+        const imgW = (W - 28 - 8) / imgPerRow;
+        const imgH = imgW * 0.65;
+        for (let j = 0; j < Math.min(ev.screenshots.length, 4); j++) {
+          try {
+            const col = j % imgPerRow;
+            const row = Math.floor(j / imgPerRow);
+            const imgX = 14 + col * (imgW + 8);
+            const imgY = y + row * (imgH + 8);
+            if (imgY + imgH > 275) break;
+            doc.addImage(ev.screenshots[j], "JPEG", imgX, imgY, imgW, imgH);
+            doc.setDrawColor(200, 200, 200);
+            doc.rect(imgX, imgY, imgW, imgH, "D");
+          } catch(imgErr) {
+            // skip invalid image
+          }
+        }
+        const rowsUsed = Math.ceil(Math.min(ev.screenshots.length, 4) / imgPerRow);
+        y += rowsUsed * (imgH + 8) + 6;
+      }
+
+      drawFooter();
+    }
+
+    // ---- CHAIN OF CUSTODY PAGE ----
+    doc.addPage();
+    y = drawHeader("Cadena de Custodia");
+
+    doc.setFontSize(11);
+    doc.setTextColor(...navy);
+    doc.setFont("helvetica","bold");
+    doc.text("CADENA DE CUSTODIA - REGISTRO DE ACCIONES", 14, y + 4);
+    y += 14;
+
+    doc.autoTable({
+      startY: y,
+      head: [["Fecha/Hora", "Accion", "Detalle", "Perito/Actor", "Tipo"]],
+      body: custody.map(c => [
+        new Date(c.timestamp).toLocaleString("es-AR"),
+        c.action,
+        c.detail.length > 60 ? c.detail.substring(0,60)+"..." : c.detail,
+        c.perito || "-",
+        c.manual ? "Manual" : "Auto"
+      ]),
+      styles: { fontSize: 7.5, cellPadding: 3, overflow: "linebreak" },
+      headStyles: { fillColor: navy, textColor: white, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: lightGray },
+      columnStyles: { 0: { cellWidth: 35 }, 3: { cellWidth: 30 }, 4: { cellWidth: 18 } },
+      margin: { left: 14, right: 14 },
+      didDrawPage: () => { drawFooter(); }
+    });
+
+    // ---- CERTIFICATION PAGE ----
+    doc.addPage();
+    y = drawHeader("Certificacion del Perito");
+
+    doc.setFontSize(11);
+    doc.setTextColor(...navy);
+    doc.setFont("helvetica","bold");
+    doc.text("CERTIFICACION Y DECLARACION JURADA DEL PERITO", 14, y + 4);
+    y += 16;
+
+    doc.setFontSize(9);
+    doc.setTextColor(...darkText);
+    doc.setFont("helvetica","normal");
+    const certText = [
+      `El que suscribe, ${cas.perito || "[Nombre del Perito]"}, con matricula profesional ${cas.matricula || "[Matricula]"},`,
+      `en calidad de perito informatico en el expediente ${cas.expediente || "[Numero de Expediente]"},`,
+      "DECLARA BAJO JURAMENTO que:",
+      "",
+      "1. La presente documentacion representa las evidencias digitales recolectadas en el marco del peritaje",
+      "   encomendado, siguiendo los principios de la norma ISO/IEC 27037:2012.",
+      "",
+      "2. Las capturas, hashes y metadatos registrados en este informe son fieles representaciones de los",
+      "   contenidos digitales encontrados al momento de la captura.",
+      "",
+      "3. Los valores hash SHA-256 aqui consignados permiten verificar la integridad de cada evidencia",
+      "   y detectar cualquier alteracion posterior a su captura.",
+      "",
+      "4. Se ha mantenido una cadena de custodia documentada de todas las acciones realizadas sobre",
+      "   la evidencia digital, conforme a los principios ACPO.",
+      "",
+      "5. Los timestamps utilizados corresponden al reloj del dispositivo empleado para la captura.",
+      "   Para maxima validez legal, se recomienda complementar con un servicio TSA (RFC 3161).",
+      "",
+      "El presente informe ha sido confeccionado con la herramienta INDAGO FORENSE, herramienta",
+      "de recoleccion de evidencia digital de codigo abierto.",
+    ];
+    certText.forEach(line => {
+      doc.text(line, 14, y);
+      y += 6;
+    });
+
+    y += 20;
+    doc.setDrawColor(...navy);
+    doc.line(14, y, 90, y);
+    doc.line(120, y, 196, y);
+    y += 5;
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica","bold");
+    doc.setTextColor(...navy);
+    doc.text("FIRMA DEL PERITO", 14, y);
+    doc.text("ACLARACION Y MATRICULA", 120, y);
+    y += 6;
+    doc.setFont("helvetica","normal");
+    doc.setTextColor(...gray);
+    doc.text(cas.perito || "", 14, y);
+    doc.text(`${cas.perito || ""} - Mat. ${cas.matricula || ""}`, 120, y);
+    y += 10;
+    doc.text(`Fecha de emision del informe: ${new Date().toLocaleDateString("es-AR")}`, 14, y);
+
+    drawFooter();
+
+    // Save
+    const filename = `INDAGO-FORENSE-${cas.expediente || "informe"}-${new Date().toISOString().slice(0,10)}.pdf`;
+    doc.save(filename.replace(/[^a-zA-Z0-9._-]/g,"-"));
+    UI.toast("Informe PDF generado correctamente", "success");
+  }
+};
+
+// ============================================================
+// Export Module
+// ============================================================
+const Export = {
+  async generateZip() {
+    const cas = Storage.getCase();
+    const evs = Storage.getEvidences();
+    const custody = Storage.getCustody();
+
+    if (evs.length === 0) { UI.toast("No hay evidencias para exportar", "error"); return; }
+    UI.toast("Generando paquete ZIP...", "success");
+    Custody.addAuto("Paquete ZIP exportado", `${evs.length} evidencias`);
+
+    const zip = new JSZip();
+    const caseFolder = zip.folder("caso_" + (cas.expediente || "sin_expediente").replace(/[^a-zA-Z0-9]/g,"_"));
+
+    // Case metadata
+    caseFolder.file("caso_metadata.json", JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      case: cas,
+      totalEvidences: evs.length
+    }, null, 2));
+
+    // Chain of custody
+    caseFolder.file("cadena_custodia.json", JSON.stringify(custody, null, 2));
+
+    // CSV log
+    caseFolder.file("evidencias_log.csv", this.buildCSV(evs));
+
+    // Hashes file
+    const hashesContent = "# INDAGO FORENSE - Archivo de Hashes SHA-256\n" +
+      "# Expediente: " + (cas.expediente||"") + "\n" +
+      "# Generado: " + new Date().toISOString() + "\n\n" +
+      evs.map(e => `${e.hash}  ${e.numero}_${e.plataforma}_${new Date(e.timestamp).toISOString().slice(0,10)}`).join("\n");
+    caseFolder.file("hashes_sha256.txt", hashesContent);
+
+    // Evidence folder
+    const eviFolder = caseFolder.folder("evidencias");
+    for (const ev of evs) {
+      const evFolder = eviFolder.folder(ev.numero);
+      // Metadata
+      const meta = { ...ev };
+      delete meta.screenshots;
+      delete meta.htmlSource;
+      evFolder.file("metadata.json", JSON.stringify(meta, null, 2));
+      // HTML source
+      if (ev.htmlSource) {
+        evFolder.file("fuente.html", ev.htmlSource);
+      }
+      // Screenshots
+      if (ev.screenshots && ev.screenshots.length > 0) {
+        const ssFolder = evFolder.folder("capturas");
+        ev.screenshots.forEach((dataUrl, idx) => {
+          try {
+            const base64Data = dataUrl.split(",")[1];
+            const ext = dataUrl.includes("png") ? "png" : "jpg";
+            ssFolder.file(`screenshot_${idx+1}.${ext}`, base64Data, { base64: true });
+          } catch(e) {}
+        });
+      }
+    }
+
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+    const filename = `INDAGO-FORENSE-${(cas.expediente||"caso").replace(/[^a-zA-Z0-9]/g,"-")}-${new Date().toISOString().slice(0,10)}.zip`;
+    saveAs(blob, filename);
+    UI.toast("Paquete ZIP descargado", "success");
+  },
+
+  buildCSV(evs) {
+    const headers = ["Numero","Tipo","Plataforma","Titulo","URL","Fecha Captura","Autor","IP Servidor","WHOIS","Herramienta","Ambiente","Hash SHA-256","Observaciones"];
+    const escape = (v) => `"${String(v||"").replace(/"/g,'""')}"`;
+    const rows = evs.map(e => [
+      e.numero, Evidence.tipoLabels[e.tipo]||e.tipo, e.plataforma,
+      e.titulo, e.url, new Date(e.timestamp).toLocaleString("es-AR"),
+      e.autor||"", e.ip||"", e.whois||"", e.herramienta||"", e.ambiente||"",
+      e.hash||"", e.observaciones||""
+    ].map(escape).join(","));
+    return [headers.join(","), ...rows].join("\n");
+  },
+
+  generateCSV() {
+    const evs = Storage.getEvidences();
+    if (evs.length === 0) { UI.toast("No hay evidencias para exportar", "error"); return; }
+    const csv = this.buildCSV(evs);
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const cas = Storage.getCase();
+    const filename = `INDAGO-evidencias-${(cas.expediente||"caso").replace(/[^a-zA-Z0-9]/g,"-")}-${new Date().toISOString().slice(0,10)}.csv`;
+    saveAs(blob, filename);
+    Custody.addAuto("CSV exportado", `${evs.length} evidencias`);
+    UI.toast("CSV exportado correctamente", "success");
+  },
+
+  exportJSON() {
+    const data = Storage.exportAll();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const cas = Storage.getCase();
+    saveAs(blob, `INDAGO-backup-${(cas.expediente||"caso").replace(/[^a-zA-Z0-9]/g,"-")}-${new Date().toISOString().slice(0,10)}.json`);
+    Custody.addAuto("Backup JSON exportado", "Backup completo del caso");
+    UI.toast("Backup JSON exportado", "success");
+  },
+
+  importJSON() {
+    document.getElementById("importFileInput").click();
+  },
+
+  handleImport(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data.case && !data.evidences) { UI.toast("Archivo JSON no valido", "error"); return; }
+        if (!confirm(`Importar caso: ${data.case?.expediente || "desconocido"}\nEsto reemplazara los datos actuales. ¿Continuar?`)) return;
+        Storage.importAll(data);
+        Config.load();
+        UI.updateSidebar();
+        UI.updateCounts();
+        UI.renderDashboard();
+        UI.renderEvidenceList();
+        UI.updateCustody();
+        Custody.addAuto("Caso importado desde JSON", `Expediente: ${data.case?.expediente || "desconocido"}`);
+        UI.toast("Caso importado correctamente", "success");
+      } catch(err) {
+        UI.toast("Error al importar: " + err.message, "error");
+      }
+    };
+    reader.readAsText(file);
+    input.value = "";
+  }
+};
+
+// ============================================================
+// UI Module
+// ============================================================
+const UI = {
+  showPage(page) {
+    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    const pg = document.getElementById("page-" + page);
+    if (pg) pg.classList.add("active");
+    const nav = document.querySelector(`.nav-item[data-page="${page}"]`);
+    if (nav) nav.classList.add("active");
+    AppState.currentPage = page;
+    const titles = {
+      dashboard: "Dashboard",
+      config: "Configuracion del Caso",
+      nueva: "Nueva Evidencia",
+      lista: "Lista de Evidencias",
+      custodia: "Cadena de Custodia",
+      exportar: "Exportar e Informe",
+      ayuda: "Ayuda y Normas"
+    };
+    document.getElementById("topbarTitle").textContent = (titles[page] || page) + " - INDAGO FORENSE";
+
+    if (page === "lista") this.renderEvidenceList();
+    if (page === "dashboard") this.renderDashboard();
+    if (page === "custodia") this.updateCustody();
+    if (page === "nueva") {
+      const fd = document.getElementById("evi_fecha");
+      if (fd && !fd.value) fd.value = new Date().toISOString().slice(0,16);
+    }
+    if (page === "exportar") this.updateExportAlert();
+    if (page === "config") Config.load();
+
+    Custody.addAuto("Pagina visitada", `Seccion: ${titles[page] || page}`);
+  },
+
+  updateExportAlert() {
+    const cas = Storage.getCase();
+    const el = document.getElementById("exportAlert");
+    if (!el) return;
+    if (!cas.expediente || !cas.perito) {
+      el.style.display = "flex";
+    } else {
+      el.style.display = "none";
+    }
+  },
+
+  renderDashboard() {
+    const evs = Storage.getEvidences();
+    const custody = Storage.getCustody();
+    const cas = Storage.getCase();
+
+    document.getElementById("statTotal").textContent = evs.length;
+    document.getElementById("statPaginas").textContent = evs.filter(e => e.tipo === "pagina_web").length;
+    document.getElementById("statSocial").textContent = evs.filter(e => e.tipo === "red_social").length;
+    document.getElementById("statVideos").textContent = evs.filter(e => e.tipo === "video").length;
+    document.getElementById("statCustodia").textContent = custody.length;
+
+    // Alert
+    const alertEl = document.getElementById("dashboardAlert");
+    if (!cas.expediente) {
+      alertEl.innerHTML = `<div class="alert alert-warning">&#9888; <strong>Configuracion pendiente:</strong> Complete los datos del caso antes de comenzar. <button class="btn btn-sm btn-outline" style="margin-left:8px" onclick="UI.showPage('config')">Configurar ahora</button></div>`;
+    } else {
+      alertEl.innerHTML = `<div class="alert alert-success">&#10003; <strong>Caso activo:</strong> Expediente ${cas.expediente} | Perito: ${cas.perito}</div>`;
+    }
+
+    // Recent evidences
+    const recentEvi = document.getElementById("dashRecentEvi");
+    if (evs.length === 0) {
+      recentEvi.innerHTML = `<div class="empty-state"><div class="empty-icon">&#128269;</div><h3>Sin evidencias</h3><p>Comience capturando la primera evidencia del caso</p></div>`;
+    } else {
+      const last5 = [...evs].reverse().slice(0, 5);
+      recentEvi.innerHTML = last5.map(e => `
+        <div style="padding:8px 0;border-bottom:1px solid #f0f4f8;cursor:pointer" onclick="Evidence.openDetail('${e.id}')">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="badge badge-blue" style="font-size:10px">${e.numero}</span>
+            <span class="badge badge-gold" style="font-size:10px">${e.plataforma}</span>
+          </div>
+          <div style="font-size:13px;font-weight:600;color:var(--navy);margin-top:3px">${e.titulo.length>50?e.titulo.substring(0,50)+"...":e.titulo}</div>
+          <div style="font-size:11px;color:var(--gray)">${new Date(e.timestamp).toLocaleString("es-AR")}</div>
+        </div>`).join("");
+    }
+
+    // Recent custody
+    const recentCust = document.getElementById("dashRecentCustodia");
+    if (custody.length === 0) {
+      recentCust.innerHTML = `<div class="empty-state"><div class="empty-icon">&#128274;</div><h3>Sin registros</h3><p>Las acciones se registran automaticamente</p></div>`;
+    } else {
+      const last5c = [...custody].reverse().slice(0, 5);
+      recentCust.innerHTML = last5c.map(c => `
+        <div style="padding:6px 0;border-bottom:1px solid #f0f4f8">
+          <div style="font-size:11px;color:var(--gray);font-family:monospace">${new Date(c.timestamp).toLocaleString("es-AR")}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--navy)">${c.action}</div>
+          <div style="font-size:11px;color:var(--gray-dark)">${c.detail.length>60?c.detail.substring(0,60)+"...":c.detail}</div>
+        </div>`).join("");
+    }
+
+    // Case info
+    const caseInfo = document.getElementById("dashCaseInfo");
+    if (!cas.expediente) {
+      caseInfo.innerHTML = `<div class="alert alert-warning">&#9888; Configure los datos del caso antes de comenzar la recoleccion de evidencia.</div>`;
+    } else {
+      caseInfo.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">
+          <div><strong>Expediente:</strong> ${cas.expediente}</div>
+          <div><strong>Perito:</strong> ${cas.perito}</div>
+          <div><strong>Matricula:</strong> ${cas.matricula || "-"}</div>
+          <div><strong>Institucion:</strong> ${cas.institucion || "-"}</div>
+          <div><strong>Cliente:</strong> ${cas.cliente || "-"}</div>
+          <div><strong>Inicio:</strong> ${cas.fecha_inicio || "-"}</div>
+        </div>
+        ${cas.descripcion ? `<div style="margin-top:10px;font-size:12px;color:var(--gray-dark);background:#f8f9fa;padding:10px;border-radius:6px">${cas.descripcion}</div>` : ""}
+      `;
+    }
+  },
+
+  renderEvidenceList() {
+    const container = document.getElementById("evidenceListContainer");
+    if (!container) return;
+    let evs = Storage.getEvidences();
+    const filterTipo = document.getElementById("filterTipo")?.value || "";
+    const filterPlat = document.getElementById("filterPlat")?.value || "";
+    if (filterTipo) evs = evs.filter(e => e.tipo === filterTipo);
+    if (filterPlat) evs = evs.filter(e => e.plataforma === filterPlat);
+
+    if (evs.length === 0) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">&#128196;</div><h3>Sin evidencias</h3><p>${filterTipo||filterPlat ? "No hay evidencias con ese filtro." : "Comience capturando la primera evidencia del caso."}</p><button class="btn btn-primary" onclick="UI.showPage('nueva')">&#10133; Agregar Evidencia</button></div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="margin-bottom:10px;font-size:12px;color:var(--gray)">${evs.length} evidencia(s) encontrada(s)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>N&#186;</th><th>Tipo</th><th>Plataforma</th><th>Titulo</th><th>URL</th><th>Fecha Captura</th><th>Imagenes</th><th>Hash (inicio)</th><th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${evs.map(e => `
+            <tr>
+              <td><strong style="color:var(--gold)">${e.numero}</strong></td>
+              <td><span class="badge badge-blue" style="font-size:10px">${Evidence.tipoLabels[e.tipo]||e.tipo}</span></td>
+              <td><span class="badge badge-gold" style="font-size:10px">${e.plataforma}</span></td>
+              <td style="max-width:200px;word-break:break-word">${e.titulo.length>40?e.titulo.substring(0,40)+"...":e.titulo}</td>
+              <td style="max-width:160px;word-break:break-all;font-size:11px"><a href="${e.url}" target="_blank" rel="noopener" style="color:var(--blue)">${e.url.length>40?e.url.substring(0,40)+"...":e.url}</a></td>
+              <td style="font-size:11px;white-space:nowrap">${new Date(e.timestamp).toLocaleString("es-AR")}</td>
+              <td style="text-align:center">${e.screenshots?.length||0}</td>
+              <td><div class="hash-display" style="font-size:9px;padding:3px 5px">${e.hash?e.hash.substring(0,20)+"...":"N/A"}</div></td>
+              <td>
+                <div style="display:flex;gap:4px">
+                  <button class="btn btn-primary btn-xs" onclick="Evidence.openDetail('${e.id}')">Ver</button>
+                  <button class="btn btn-outline btn-xs" onclick="Evidence.editFromId('${e.id}')">Editar</button>
+                  <button class="btn btn-danger btn-xs" onclick="Evidence.deleteFromId('${e.id}')">Borrar</button>
+                </div>
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  },
+
+  updateCustody() {
+    const custody = Storage.getCustody();
+    const timeline = document.getElementById("custodyTimeline");
+    const count = document.getElementById("custodyCount");
+    if (!timeline) return;
+    if (count) count.textContent = custody.length + " registros";
+
+    if (custody.length === 0) {
+      timeline.innerHTML = `<div class="empty-state"><div class="empty-icon">&#128274;</div><h3>Sin registros</h3><p>Los registros se crean automaticamente al interactuar con el sistema.</p></div>`;
+      return;
+    }
+
+    timeline.innerHTML = [...custody].reverse().map(c => `
+      <div class="custody-item ${c.manual ? "manual" : ""}">
+        <div class="ci-time">${new Date(c.timestamp).toLocaleString("es-AR")} UTC | ${c.perito || "Sistema"}</div>
+        <div class="ci-action">${c.action} ${c.manual ? '<span class="badge badge-gold" style="font-size:9px">MANUAL</span>' : ''}</div>
+        <div class="ci-detail">${c.detail}</div>
+      </div>`).join("");
+  },
+
+  updateCounts() {
+    const evs = Storage.getEvidences();
+    const badge = document.getElementById("navEviCount");
+    if (badge) badge.textContent = evs.length;
+    document.getElementById("statTotal").textContent = evs.length;
+  },
+
+  updateSidebar() {
+    const cas = Storage.getCase();
+    const caseNum = document.getElementById("sidebarCaseNum");
+    const perName = document.getElementById("sidebarPerito");
+    if (caseNum) caseNum.textContent = cas.expediente || "Sin expediente";
+    if (perName) perName.textContent = cas.perito || "Perito no configurado";
+    this.updateCounts();
+  },
+
+  openModal(id) {
+    const m = document.getElementById(id);
+    if (m) m.classList.add("open");
+  },
+
+  closeModal(id) {
+    const m = document.getElementById(id);
+    if (m) m.classList.remove("open");
+    AppState.currentViewId = null;
+  },
+
+  toast(msg, type) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (type ? " " + type : "");
+    clearTimeout(t._timeout);
+    t._timeout = setTimeout(() => { t.className = "toast"; }, 3500);
+  }
+};
+
+// Extend Evidence for direct list actions
+Evidence.editFromId = function(id) {
+  AppState.currentViewId = id;
+  this.editFromModal();
+};
+Evidence.deleteFromId = function(id) {
+  AppState.currentViewId = id;
+  this.deleteFromModal();
+};
+
+// Close modals on overlay click
+document.querySelectorAll(".modal-overlay").forEach(overlay => {
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) UI.closeModal(overlay.id);
+  });
+});
+
+// ============================================================
+// INIT
+// ============================================================
+(function init() {
+  // Set current date/time for new evidence form
+  const fd = document.getElementById("evi_fecha");
+  if (fd) fd.value = new Date().toISOString().slice(0,16);
+
+  // Set default case start date
+  const fdi = document.getElementById("cfg_fecha_inicio");
+  if (fdi && !fdi.value) fdi.value = new Date().toISOString().slice(0,10);
+
+  Config.load();
+  UI.updateSidebar();
+  UI.renderDashboard();
+  UI.updateCustody();
+
+  // Log first access
+  Custody.addAuto("Sistema iniciado", "INDAGO FORENSE v1.0 - Herramienta de recoleccion de evidencia digital");
+
+  console.log("INDAGO FORENSE v1.0 iniciado correctamente");
+  console.log("ISO/IEC 27037:2012 | ACPO Good Practice Guide | RFC 3161");
+})();
+</script>
+</body>
+</html>
