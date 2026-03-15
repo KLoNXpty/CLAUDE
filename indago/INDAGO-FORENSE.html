@@ -388,6 +388,33 @@ textarea{resize:vertical;min-height:80px}
     💡 <strong>Consejo:</strong> Capture la URL exacta incluyendo parámetros de consulta. Suba capturas de pantalla como evidencia visual. El hash SHA-256 garantiza la integridad.
   </div>
 
+  <!-- Auto-capture panel -->
+  <div class="capture-panel" id="auto-capture-panel">
+    <h3>⚡ Captura Automática</h3>
+    <p id="capture-panel-desc">Ingrese la URL y el servidor descargará el contenido, calculará los hashes y completará todos los campos automáticamente.</p>
+    <div class="capture-input-row" style="margin-bottom:12px">
+      <input type="text" id="capture-url-input" placeholder="https://www.youtube.com/watch?v=... o cualquier URL" />
+    </div>
+    <div class="capture-mode-btns">
+      <button class="btn btn-accent" onclick="AutoCapture.captureMedia()" id="btn-capture-video" title="Descarga video, thumbnail, comentarios y metadatos">🎬 Capturar Video / Red Social</button>
+      <button class="btn" style="background:rgba(255,255,255,0.2);color:#fff" onclick="AutoCapture.capturePage()" id="btn-capture-page" title="Captura HTML, screenshot y metadatos de la página">🌐 Capturar Página Web</button>
+      <button class="btn" style="background:rgba(255,255,255,0.2);color:#fff" onclick="AutoCapture.captureImage()" id="btn-capture-image" title="Descarga imagen directa y calcula hash">🖼️ Capturar Imagen</button>
+    </div>
+    <div id="capture-server-warning" style="display:none;margin-top:12px;padding:10px;background:rgba(255,200,0,0.2);border-radius:8px;font-size:0.82rem">
+      ⚠️ Servidor offline — las capturas automáticas no están disponibles. <a href="#" onclick="UI.navigate('exportar');return false" style="color:#ffd700">Ver instrucciones para activar el servidor</a>
+    </div>
+  </div>
+
+  <!-- Progress overlay (hidden) -->
+  <div class="progress-overlay" id="autocapture-progress-overlay" style="display:none">
+    <div class="progress-box">
+      <div style="font-size:2rem">⏳</div>
+      <h3 id="progress-title" style="margin:8px 0">Capturando evidencia...</h3>
+      <div class="progress-bar-outer"><div class="progress-bar-inner" id="progress-bar" style="width:0%"></div></div>
+      <ul class="progress-steps" id="progress-steps"></ul>
+    </div>
+  </div>
+
   <!-- BASIC FIELDS -->
   <div class="card">
     <div class="card-title"><span class="icon">📝</span> Información Básica</div>
@@ -754,6 +781,19 @@ textarea{resize:vertical;min-height:80px}
       <div class="export-card-desc">Exporta el estado completo del caso en formato JSON. Útil para respaldo y para importar el caso en otra instalación de INDAGO Forense.</div>
       <button class="btn btn-outline" onclick="ReportGenerator.json()" style="margin-top:auto">🗄️ Exportar JSON del Caso</button>
     </div>
+  </div>
+
+  <div class="export-card" style="border-color:#c9972c;margin-top:20px">
+    <div class="export-card-icon">⚙️</div>
+    <div class="export-card-title">Servidor de Captura Automática</div>
+    <div class="export-card-desc">
+      Para activar la captura automática de videos, páginas y comentarios, ejecute el servidor en su terminal:
+      <pre style="background:#f0f4f8;padding:10px;border-radius:6px;margin-top:8px;font-size:0.82rem;overflow-x:auto">cd ~/CLAUDE/indago
+pip install flask flask-cors yt-dlp requests playwright
+python server.py</pre>
+      Luego recargue esta página. El indicador en la barra superior mostrará <strong style="color:#27ae60">Servidor activo</strong>.
+    </div>
+    <div id="server-status-export" style="margin-top:12px"></div>
   </div>
 
   <div class="card" style="margin-top:20px">
@@ -2321,7 +2361,307 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   console.log('INDAGO Forense v' + APP_VERSION + ' inicializado correctamente');
+
+  AutoCapture.checkServer();
+  setInterval(AutoCapture.checkServer, 10000);
 });
+
+// ============================================================
+// AutoCapture — Servidor de Captura Automática
+// ============================================================
+const SERVER_URL = 'http://localhost:8765';
+
+const AutoCapture = {
+  serverOnline: false,
+
+  async checkServer() {
+    try {
+      const r = await fetch(`${SERVER_URL}/api/status`, { signal: AbortSignal.timeout(2000) });
+      const d = await r.json();
+      AutoCapture.serverOnline = true;
+      document.getElementById('server-status-badge').className = 'server-badge server-online';
+      document.getElementById('server-status-text').textContent = `Servidor activo${d.yt_dlp ? ' · yt-dlp ✓' : ''}${d.playwright ? ' · playwright ✓' : ''}`;
+      document.getElementById('capture-server-warning').style.display = 'none';
+    } catch {
+      AutoCapture.serverOnline = false;
+      document.getElementById('server-status-badge').className = 'server-badge server-offline';
+      document.getElementById('server-status-text').textContent = 'Servidor offline';
+      document.getElementById('capture-server-warning').style.display = 'block';
+    }
+  },
+
+  getUrl() {
+    const url = (document.getElementById('capture-url-input').value || document.getElementById('ev-url').value || '').trim();
+    if (!url) { UI.toast('Ingrese una URL primero', 'error'); return null; }
+    // Sync URL field
+    document.getElementById('ev-url').value = url;
+    document.getElementById('capture-url-input').value = url;
+    return url;
+  },
+
+  showProgress(title, steps) {
+    document.getElementById('progress-title').textContent = title;
+    const stepsEl = document.getElementById('progress-steps');
+    stepsEl.innerHTML = steps.map((s, i) => `<li id="pstep-${i}">${s}</li>`).join('');
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('autocapture-progress-overlay').style.display = 'flex';
+  },
+
+  setStep(i, total) {
+    document.querySelectorAll('#progress-steps li').forEach((el, idx) => {
+      el.className = idx < i ? 'done' : idx === i ? 'active' : '';
+      if (idx < i) el.textContent = '✅ ' + el.textContent.replace(/^[✅⏳] /, '');
+      if (idx === i) el.textContent = '⏳ ' + el.textContent.replace(/^[✅⏳] /, '');
+    });
+    document.getElementById('progress-bar').style.width = `${Math.round((i / total) * 100)}%`;
+  },
+
+  hideProgress() {
+    document.getElementById('autocapture-progress-overlay').style.display = 'none';
+  },
+
+  async captureMedia() {
+    const url = AutoCapture.getUrl();
+    if (!url) return;
+    if (!AutoCapture.serverOnline) { UI.toast('Servidor offline — inicie server.py primero', 'error'); return; }
+    if (!STATE.caso.expediente) { UI.toast('Configure el caso primero', 'error'); return; }
+
+    const steps = ['Detectando plataforma', 'Descargando thumbnail y metadatos', 'Descargando video', 'Extrayendo comentarios', 'Calculando hashes SHA-256', 'Completando formulario'];
+    AutoCapture.showProgress('Capturando contenido multimedia...', steps);
+
+    try {
+      AutoCapture.setStep(0, steps.length);
+      await new Promise(r => setTimeout(r, 300));
+
+      AutoCapture.setStep(1, steps.length);
+      const resp = await fetch(`${SERVER_URL}/api/download-media`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ url, download_video: true })
+      });
+      const d = await resp.json();
+
+      if (d.error) throw new Error(d.error);
+
+      AutoCapture.setStep(2, steps.length);
+      await new Promise(r => setTimeout(r, 200));
+
+      AutoCapture.setStep(3, steps.length);
+      await new Promise(r => setTimeout(r, 200));
+
+      AutoCapture.setStep(4, steps.length);
+
+      // Fill form fields
+      const tipo = d.platform?.toLowerCase().includes('you') ? 'video' :
+                   d.platform ? 'social' : 'video';
+      document.getElementById('ev-tipo').value = tipo;
+      UI.updateEvidenceForm();
+      document.getElementById('ev-url').value = url;
+      document.getElementById('ev-titulo').value = d.title || url;
+      document.getElementById('ev-plataforma').value = d.platform || UI.detectPlatform(url);
+      document.getElementById('ev-fecha').value = new Date().toISOString().slice(0,16);
+
+      if (d.post_id) document.getElementById('ev-post-id').value = d.post_id;
+      if (d.author) document.getElementById('ev-autor-nombre').value = d.author;
+      if (d.author_id) document.getElementById('ev-autor-id').value = d.author_id;
+      if (d.upload_date) document.getElementById('ev-fecha-publi').value = d.upload_date;
+      if (d.view_count != null) document.getElementById('ev-views').value = d.view_count;
+      if (d.like_count != null) document.getElementById('ev-likes').value = d.like_count;
+      if (d.comment_count != null) document.getElementById('ev-comments').value = d.comment_count;
+      if (d.duration) document.getElementById('ev-duracion').value = d.duration;
+      if (d.resolution) document.getElementById('ev-resolucion-video').value = d.resolution;
+
+      // Thumbnail as screenshot
+      if (d.thumbnail_b64) {
+        if (!window._currentScreenshots) window._currentScreenshots = [];
+        window._currentScreenshots.push({ data: d.thumbnail_b64, hash: d.sha256_thumbnail, name: 'thumbnail.jpg', size: 0 });
+        const preview = document.getElementById('screenshot-thumbs');
+        const div = document.createElement('div');
+        div.className = 'screenshot-thumb';
+        div.innerHTML = `<img src="${d.thumbnail_b64}" style="width:100%;height:80px;object-fit:cover;border-radius:4px"><div style="font-size:0.65rem;color:var(--text-light);margin-top:2px">${(d.sha256_thumbnail||'').substring(0,20)}… (thumbnail)</div>`;
+        preview.appendChild(div);
+      }
+
+      // Video hash
+      if (d.sha256_video) {
+        const el = document.getElementById('ev-video-hash');
+        if (el) el.value = d.sha256_video;
+      }
+
+      // Store video path for ZIP export
+      if (d.video_path) {
+        window._currentVideoPath = d.video_path;
+        window._currentVideoHash = d.sha256_video;
+        window._currentVideoSize = d.video_size_mb;
+      }
+
+      // Comments
+      if (d.comments && d.comments.length > 0) {
+        AutoCapture.showCommentPreview(d.comments);
+        // Store comments for evidence
+        window._currentComments = d.comments;
+      }
+
+      // Description in observations
+      if (d.description) {
+        const obs = document.getElementById('ev-observaciones');
+        obs.value = `[Auto-capturado con INDAGO Forense]\nDescripción: ${d.description.substring(0, 500)}`;
+      }
+
+      // yt-dlp command
+      const ytdlpEl = document.getElementById('ev-ytdlp-cmd');
+      if (ytdlpEl && d.ytdlp_command) ytdlpEl.value = d.ytdlp_command;
+
+      AutoCapture.setStep(5, steps.length);
+      document.getElementById('progress-bar').style.width = '100%';
+      await new Promise(r => setTimeout(r, 500));
+      AutoCapture.hideProgress();
+
+      // Show preview
+      AutoCapture.showCapturePreview(d);
+      UI.toast(`✅ Captura completa: ${d.title || url}`, 'success', 5000);
+
+    } catch (e) {
+      AutoCapture.hideProgress();
+      UI.toast('Error en captura: ' + e.message, 'error');
+    }
+  },
+
+  async capturePage() {
+    const url = AutoCapture.getUrl();
+    if (!url) return;
+    if (!AutoCapture.serverOnline) { UI.toast('Servidor offline — inicie server.py primero', 'error'); return; }
+    if (!STATE.caso.expediente) { UI.toast('Configure el caso primero', 'error'); return; }
+
+    const steps = ['Conectando con el servidor', 'Obteniendo IP del servidor', 'Descargando código fuente HTML', 'Capturando screenshot', 'Calculando hashes'];
+    AutoCapture.showProgress('Capturando página web...', steps);
+
+    try {
+      AutoCapture.setStep(0, steps.length);
+      const resp = await fetch(`${SERVER_URL}/api/capture-page`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ url })
+      });
+      const d = await resp.json();
+
+      AutoCapture.setStep(1, steps.length);
+      if (d.server_ip) document.getElementById('ev-ip-server').value = d.server_ip;
+
+      AutoCapture.setStep(2, steps.length);
+      if (d.html) {
+        document.getElementById('ev-html-source').value = d.html;
+        document.getElementById('ev-tipo').value = 'web';
+        UI.updateEvidenceForm();
+      }
+
+      AutoCapture.setStep(3, steps.length);
+      if (d.screenshot_b64) {
+        if (!window._currentScreenshots) window._currentScreenshots = [];
+        window._currentScreenshots.push({ data: d.screenshot_b64, hash: d.sha256_screenshot, name: 'screenshot.png', size: 0 });
+        const preview = document.getElementById('screenshot-thumbs');
+        const div = document.createElement('div');
+        div.className = 'screenshot-thumb';
+        div.innerHTML = `<img src="${d.screenshot_b64}" style="width:100%;height:80px;object-fit:cover;border-radius:4px"><div style="font-size:0.65rem;color:var(--text-light);margin-top:2px">${(d.sha256_screenshot||'').substring(0,20)}… (screenshot)</div>`;
+        preview.appendChild(div);
+      }
+
+      AutoCapture.setStep(4, steps.length);
+      document.getElementById('ev-url').value = url;
+      if (d.title) document.getElementById('ev-titulo').value = d.title;
+      document.getElementById('ev-plataforma').value = UI.detectPlatform(url);
+      document.getElementById('ev-fecha').value = new Date().toISOString().slice(0,16);
+
+      if (d.headers) document.getElementById('ev-http-headers').value = JSON.stringify(d.headers, null, 2);
+      if (d.status_code) {
+        const obs = document.getElementById('ev-observaciones');
+        obs.value = `[Auto-capturado] HTTP ${d.status_code} | Content-Type: ${d.content_type}`;
+      }
+
+      document.getElementById('progress-bar').style.width = '100%';
+      await new Promise(r => setTimeout(r, 400));
+      AutoCapture.hideProgress();
+      UI.toast('✅ Página capturada correctamente', 'success', 4000);
+
+    } catch (e) {
+      AutoCapture.hideProgress();
+      UI.toast('Error: ' + e.message, 'error');
+    }
+  },
+
+  async captureImage() {
+    const url = AutoCapture.getUrl();
+    if (!url) return;
+    if (!AutoCapture.serverOnline) { UI.toast('Servidor offline — inicie server.py primero', 'error'); return; }
+
+    UI.toast('Descargando imagen...', 'info', 3000);
+    try {
+      const resp = await fetch(`${SERVER_URL}/api/fetch-image`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ url })
+      });
+      const d = await resp.json();
+      if (d.error) throw new Error(d.error);
+
+      if (!window._currentScreenshots) window._currentScreenshots = [];
+      window._currentScreenshots.push({ data: d.image_b64, hash: d.sha256, name: 'image', size: d.size_kb * 1024 });
+
+      const preview = document.getElementById('screenshot-thumbs');
+      const div = document.createElement('div');
+      div.className = 'screenshot-thumb';
+      div.innerHTML = `<img src="${d.image_b64}" style="width:100%;height:80px;object-fit:cover;border-radius:4px"><div style="font-size:0.65rem;color:var(--text-light);margin-top:2px">SHA-256: ${d.sha256.substring(0,20)}… | ${d.size_kb} KB</div>`;
+      preview.appendChild(div);
+
+      if (d.server_ip) document.getElementById('ev-ip-server').value = d.server_ip;
+      document.getElementById('ev-url').value = url;
+      document.getElementById('ev-tipo').value = 'file';
+      document.getElementById('ev-titulo').value = url.split('/').pop() || 'Imagen';
+      document.getElementById('ev-plataforma').value = UI.detectPlatform(url);
+
+      UI.toast(`✅ Imagen capturada | SHA-256: ${d.sha256.substring(0,16)}…`, 'success', 5000);
+    } catch (e) {
+      UI.toast('Error descargando imagen: ' + e.message, 'error');
+    }
+  },
+
+  showCapturePreview(d) {
+    // Remove old preview
+    const old = document.getElementById('capture-preview');
+    if (old) old.remove();
+
+    const div = document.createElement('div');
+    div.id = 'capture-preview';
+    div.className = 'preview-card';
+    div.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        ${d.thumbnail_b64 ? `<img src="${d.thumbnail_b64}" style="width:120px;height:80px;object-fit:cover;border-radius:8px;flex-shrink:0">` : ''}
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;margin-bottom:4px">${d.title || 'Sin título'}</div>
+          <div style="font-size:0.82rem;color:var(--text-light);margin-bottom:8px">${d.platform || ''} ${d.author ? `· @${d.author}` : ''} ${d.duration ? `· ⏱ ${d.duration}` : ''}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.8rem">
+            ${d.view_count != null ? `<span>👁 ${Number(d.view_count).toLocaleString()}</span>` : ''}
+            ${d.like_count != null ? `<span>❤️ ${Number(d.like_count).toLocaleString()}</span>` : ''}
+            ${d.comment_count != null ? `<span>💬 ${Number(d.comment_count).toLocaleString()}</span>` : ''}
+          </div>
+          ${d.sha256_video ? `<div style="font-family:monospace;font-size:0.7rem;margin-top:6px;color:#27ae60">SHA-256 video: ${d.sha256_video.substring(0,32)}…</div>` : ''}
+          ${d.video_size_mb ? `<div style="font-size:0.78rem;color:var(--text-light)">📦 Tamaño: ${d.video_size_mb} MB</div>` : ''}
+        </div>
+      </div>
+      ${d.comments && d.comments.length > 0 ? `
+        <div style="margin-top:12px">
+          <div style="font-weight:600;margin-bottom:6px">💬 ${d.comments.length} comentarios capturados</div>
+          <div class="comments-list">${d.comments.slice(0,10).map(c => `<div class="comment-item"><span class="comment-author">${c.autor}</span><div class="comment-text">${c.texto}</div><div class="comment-meta">❤️ ${c.likes||0}</div></div>`).join('')}</div>
+        </div>
+      ` : ''}
+    `;
+    document.getElementById('auto-capture-panel').after(div);
+  },
+
+  showCommentPreview(comments) {
+    // Already handled in showCapturePreview
+  }
+};
 
 </script>
 </body>
