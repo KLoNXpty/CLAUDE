@@ -4,7 +4,7 @@ INDAGO Forense — Servidor de Captura Automática
 Corre en localhost:8765 junto al archivo INDAGO-FORENSE.html
 """
 
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, Response
 from flask_cors import CORS
 import subprocess, os, json, hashlib, base64, tempfile, shutil, requests, socket, uuid
 from datetime import datetime, timezone
@@ -62,7 +62,8 @@ def get_mime(path):
 
 @app.route('/')
 def index():
-    return send_from_directory(str(Path(__file__).parent), 'INDAGO-FORENSE.html')
+    html_path = Path(__file__).resolve().parent / 'INDAGO-FORENSE.html'
+    return Response(html_path.read_bytes(), mimetype='text/html')
 
 # ── Session endpoints ──────────────────────────────────────────
 
