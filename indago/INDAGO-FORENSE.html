@@ -904,3 +904,1383 @@ textarea{resize:vertical;min-height:80px}
 <!-- Toast container -->
 <div id="toast-container"></div>
 
+<script>
+'use strict';
+
+const APP_VERSION = '2.0.0';
+const STORAGE_KEY = 'indago_forense_v2';
+
+const STATE = {
+  caso: {},
+  evidencias: [],
+  cadena: [],
+  config: {},
+  pendingScreenshots: [],
+  pendingHtmlHash: '',
+  pendingVideoHash: ''
+};
+
+// ============================================================
+// STORAGE MODULE
+// ============================================================
+const Storage = {
+  save() {
+    try {
+      const data = {
+        caso: STATE.caso,
+        evidencias: STATE.evidencias.map(e => {
+          const copy = Object.assign({}, e);
+          // Omit raw image data from storage to manage size; keep hashes
+          if (copy.screenshots) {
+            copy.screenshots = copy.screenshots.map(s => ({
+              name: s.name, hash: s.hash,
+              data: s.data ? s.data.substring(0, 50) + '...[truncated]' : ''
+            }));
+          }
+          return copy;
+        }),
+        cadena: STATE.cadena,
+        config: STATE.config
+      };
+      // Store full data (with images) in a separate key
+      const fullData = { caso: STATE.caso, evidencias: STATE.evidencias, cadena: STATE.cadena, config: STATE.config };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(fullData));
+    } catch(e) {
+      console.warn('Storage save error:', e);
+      UI.toast('Advertencia: No se pudo guardar en localStorage (posiblemente lleno)', 'warning');
+    }
+  },
+  load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      STATE.caso = data.caso || {};
+      STATE.evidencias = data.evidencias || [];
+      STATE.cadena = data.cadena || [];
+      STATE.config = data.config || {};
+      return true;
+    } catch(e) {
+      console.warn('Storage load error:', e);
+      return false;
+    }
+  },
+  clear() {
+    localStorage.removeItem(STORAGE_KEY);
+    STATE.caso = {};
+    STATE.evidencias = [];
+    STATE.cadena = [];
+    STATE.config = {};
+    STATE.pendingScreenshots = [];
+    STATE.pendingHtmlHash = '';
+    STATE.pendingVideoHash = '';
+  }
+};
+
+// ============================================================
+// CRYPTO MODULE
+// ============================================================
+const Crypto = {
+  async sha256text(text) {
+    const buf = new TextEncoder().encode(text);
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+  },
+  async sha256buffer(buffer) {
+    const hash = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+  },
+  async md5text(text) {
+    // MD5 via simple implementation (WebCrypto doesn't support MD5)
+    const buf = new TextEncoder().encode(text);
+    return Crypto._md5(buf);
+  },
+  _md5(buffer) {
+    // Simple MD5 implementation
+    function safeAdd(x, y) { const lsw=(x&0xFFFF)+(y&0xFFFF); const msw=(x>>16)+(y>>16)+(lsw>>16); return (msw<<16)|(lsw&0xFFFF); }
+    function bitRotateLeft(num, cnt) { return (num<<cnt)|(num>>>(32-cnt)); }
+    function md5cmn(q,a,b,x,s,t) { return safeAdd(bitRotateLeft(safeAdd(safeAdd(a,q),safeAdd(x,t)),s),b); }
+    function md5ff(a,b,c,d,x,s,t) { return md5cmn((b&c)|((~b)&d),a,b,x,s,t); }
+    function md5gg(a,b,c,d,x,s,t) { return md5cmn((b&d)|(c&(~d)),a,b,x,s,t); }
+    function md5hh(a,b,c,d,x,s,t) { return md5cmn(b^c^d,a,b,x,s,t); }
+    function md5ii(a,b,c,d,x,s,t) { return md5cmn(c^(b|(~d)),a,b,x,s,t); }
+    const uint8 = new Uint8Array(buffer);
+    const str = Array.from(uint8).map(b => String.fromCharCode(b)).join('');
+    let n = str.length;
+    const state = [1732584193, -271733879, -1732584194, 271733878];
+    let i;
+    for (i=64; i<=n; i+=64) {
+      const chunk = str.slice(i-64, i);
+      const M = [];
+      for (let j=0;j<64;j+=4) M.push((chunk.charCodeAt(j))|(chunk.charCodeAt(j+1)<<8)|(chunk.charCodeAt(j+2)<<16)|(chunk.charCodeAt(j+3)<<24));
+      let [a,b,c,d] = state;
+      a=md5ff(a,b,c,d,M[0],7,-680876936); d=md5ff(d,a,b,c,M[1],12,-389564586);
+      c=md5ff(c,d,a,b,M[2],17,606105819); b=md5ff(b,c,d,a,M[3],22,-1044525330);
+      a=md5ff(a,b,c,d,M[4],7,-176418897); d=md5ff(d,a,b,c,M[5],12,1200080426);
+      c=md5ff(c,d,a,b,M[6],17,-1473231341); b=md5ff(b,c,d,a,M[7],22,-45705983);
+      a=md5ff(a,b,c,d,M[8],7,1770035416); d=md5ff(d,a,b,c,M[9],12,-1958414417);
+      c=md5ff(c,d,a,b,M[10],17,-42063); b=md5ff(b,c,d,a,M[11],22,-1990404162);
+      a=md5ff(a,b,c,d,M[12],7,1804603682); d=md5ff(d,a,b,c,M[13],12,-40341101);
+      c=md5ff(c,d,a,b,M[14],17,-1502002290); b=md5ff(b,c,d,a,M[15],22,1236535329);
+      a=md5gg(a,b,c,d,M[1],5,-165796510); d=md5gg(d,a,b,c,M[6],9,-1069501632);
+      c=md5gg(c,d,a,b,M[11],14,643717713); b=md5gg(b,c,d,a,M[0],20,-373897302);
+      a=md5gg(a,b,c,d,M[5],5,-701558691); d=md5gg(d,a,b,c,M[10],9,38016083);
+      c=md5gg(c,d,a,b,M[15],14,-660478335); b=md5gg(b,c,d,a,M[4],20,-405537848);
+      a=md5gg(a,b,c,d,M[9],5,568446438); d=md5gg(d,a,b,c,M[14],9,-1019803690);
+      c=md5gg(c,d,a,b,M[3],14,-187363961); b=md5gg(b,c,d,a,M[8],20,1163531501);
+      a=md5gg(a,b,c,d,M[13],5,-1444681467); d=md5gg(d,a,b,c,M[2],9,-51403784);
+      c=md5gg(c,d,a,b,M[7],14,1735328473); b=md5gg(b,c,d,a,M[12],20,-1926607734);
+      a=md5hh(a,b,c,d,M[5],4,-378558); d=md5hh(d,a,b,c,M[8],11,-2022574463);
+      c=md5hh(c,d,a,b,M[11],16,1839030562); b=md5hh(b,c,d,a,M[14],23,-35309556);
+      a=md5hh(a,b,c,d,M[1],4,-1530992060); d=md5hh(d,a,b,c,M[4],11,1272893353);
+      c=md5hh(c,d,a,b,M[7],16,-155497632); b=md5hh(b,c,d,a,M[10],23,-1094730640);
+      a=md5hh(a,b,c,d,M[13],4,681279174); d=md5hh(d,a,b,c,M[0],11,-358537222);
+      c=md5hh(c,d,a,b,M[3],16,-722521979); b=md5hh(b,c,d,a,M[6],23,76029189);
+      a=md5hh(a,b,c,d,M[9],4,-640364487); d=md5hh(d,a,b,c,M[12],11,-421815835);
+      c=md5hh(c,d,a,b,M[15],16,530742520); b=md5hh(b,c,d,a,M[2],23,-995338651);
+      a=md5ii(a,b,c,d,M[0],6,-198630844); d=md5ii(d,a,b,c,M[7],10,1126891415);
+      c=md5ii(c,d,a,b,M[14],15,-1416354905); b=md5ii(b,c,d,a,M[5],21,-57434055);
+      a=md5ii(a,b,c,d,M[12],6,1700485571); d=md5ii(d,a,b,c,M[3],10,-1894986606);
+      c=md5ii(c,d,a,b,M[10],15,-1051523); b=md5ii(b,c,d,a,M[1],21,-2054922799);
+      a=md5ii(a,b,c,d,M[8],6,1873313359); d=md5ii(d,a,b,c,M[15],10,-30611744);
+      c=md5ii(c,d,a,b,M[6],15,-1560198380); b=md5ii(b,c,d,a,M[13],21,1309151649);
+      a=md5ii(a,b,c,d,M[4],6,-145523070); d=md5ii(d,a,b,c,M[11],10,-1120210379);
+      c=md5ii(c,d,a,b,M[2],15,718787259); b=md5ii(b,c,d,a,M[9],21,-343485551);
+      state[0]=safeAdd(a,state[0]); state[1]=safeAdd(b,state[1]);
+      state[2]=safeAdd(c,state[2]); state[3]=safeAdd(d,state[3]);
+    }
+    // For simplicity return hex of state
+    return state.map(s => {
+      const hex = (s >>> 0).toString(16).padStart(8,'0');
+      return hex.match(/../g).reverse().join('');
+    }).join('');
+  }
+};
+
+// ============================================================
+// CHAIN OF CUSTODY MANAGER
+// ============================================================
+const ChainManager = {
+  addEntry(tipo, descripcion, options = {}) {
+    const entry = {
+      id: 'CHN-' + String(STATE.cadena.length + 1).padStart(4,'0'),
+      tipo: tipo,
+      descripcion: descripcion,
+      operador: options.operador || (STATE.caso.perito || 'Sistema'),
+      timestamp: new Date().toISOString(),
+      evidenciaId: options.evidenciaId || null,
+      hashSnapshot: options.hashSnapshot || null
+    };
+    STATE.cadena.unshift(entry);
+    Storage.save();
+    UI.renderChain();
+    return entry;
+  },
+  getLog() {
+    return STATE.cadena;
+  },
+  addManual() {
+    const tipo = document.getElementById('chain-manual-tipo').value;
+    const desc = document.getElementById('chain-manual-desc').value.trim();
+    const op = document.getElementById('chain-manual-operador').value.trim();
+    const eviId = document.getElementById('chain-manual-eviid').value.trim();
+    if (!desc) { UI.toast('Por favor escriba una descripción', 'error'); return; }
+    ChainManager.addEntry(tipo, desc, {
+      operador: op || STATE.caso.perito || 'Perito',
+      evidenciaId: eviId || null
+    });
+    UI.closeModal('modal-chain');
+    UI.toast('Entrada manual agregada a la cadena de custodia', 'success');
+    document.getElementById('chain-manual-desc').value = '';
+  },
+  exportJSON() {
+    const data = { caso: STATE.caso, cadena: STATE.cadena, exportado: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const num = STATE.caso.numero || 'SIN-CASO';
+    saveAs(blob, `CADENA-CUSTODIA-${num}-${Date.now()}.json`);
+    ChainManager.addEntry('CASO_EXPORTADO', 'Cadena de custodia exportada como JSON');
+    UI.toast('Cadena de custodia exportada', 'success');
+  }
+};
+
+// ============================================================
+// CASO MANAGER
+// ============================================================
+const CasoManager = {
+  guardar() {
+    const numero = document.getElementById('caso-numero').value.trim();
+    const perito = document.getElementById('caso-perito').value.trim();
+    const cedula = document.getElementById('caso-cedula').value.trim();
+    if (!numero) { document.getElementById('caso-numero').classList.add('error'); UI.toast('El número de expediente es obligatorio', 'error'); return; }
+    if (!perito) { document.getElementById('caso-perito').classList.add('error'); UI.toast('El nombre del perito es obligatorio', 'error'); return; }
+    if (!cedula) { document.getElementById('caso-cedula').classList.add('error'); UI.toast('La cédula profesional es obligatoria', 'error'); return; }
+    document.getElementById('caso-numero').classList.remove('error');
+    document.getElementById('caso-perito').classList.remove('error');
+    document.getElementById('caso-cedula').classList.remove('error');
+    const isNew = !STATE.caso.numero;
+    STATE.caso = {
+      numero: numero,
+      tipo: document.getElementById('caso-tipo').value,
+      perito: perito,
+      cedula: cedula,
+      especialidad: document.getElementById('caso-especialidad').value.trim(),
+      institucion: document.getElementById('caso-institucion').value.trim(),
+      cliente: document.getElementById('caso-cliente').value.trim(),
+      descripcion: document.getElementById('caso-descripcion').value.trim(),
+      fechaInicio: document.getElementById('caso-fecha').value || new Date().toISOString(),
+      notas: document.getElementById('caso-notas').value.trim(),
+      estado: 'abierto',
+      herramienta: 'INDAGO Forense v' + APP_VERSION,
+      guardadoEn: new Date().toISOString()
+    };
+    if (isNew) {
+      ChainManager.addEntry('CASO_CREADO', `Caso ${numero} creado por ${perito} (${cedula})`, { operador: perito });
+    } else {
+      ChainManager.addEntry('EVIDENCIA_MODIFICADA', `Datos del caso ${numero} actualizados`, { operador: perito });
+    }
+    Storage.save();
+    UI.updateHeader();
+    UI.toast('Caso guardado correctamente', 'success');
+    // Pre-fill operator in chain modal
+    document.getElementById('chain-manual-operador').value = perito;
+  },
+  nuevo() {
+    if (!confirm('¿Crear un nuevo caso? Los datos del caso actual se perderán si no exportó el JSON. Las evidencias actuales se borrarán.')) return;
+    Storage.clear();
+    UI.resetAllForms();
+    UI.updateHeader();
+    UI.renderList();
+    UI.renderChain();
+    UI.updateBadge();
+    UI.toast('Nuevo caso iniciado', 'success');
+    UI.navigate('caso');
+  },
+  importar() {
+    document.getElementById('importar-json-input').click();
+  },
+  cargarJSON(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data.caso) { UI.toast('JSON inválido: no contiene datos de caso', 'error'); return; }
+        STATE.caso = data.caso || {};
+        STATE.evidencias = data.evidencias || [];
+        STATE.cadena = data.cadena || [];
+        Storage.save();
+        UI.populateCasoForm();
+        UI.updateHeader();
+        UI.renderList();
+        UI.renderChain();
+        UI.updateBadge();
+        ChainManager.addEntry('CASO_CREADO', `Caso importado desde archivo JSON: ${file.name}`);
+        UI.toast(`Caso importado: ${STATE.caso.numero}`, 'success');
+        UI.navigate('caso');
+      } catch(err) {
+        UI.toast('Error al leer el archivo JSON: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  }
+};
+
+// ============================================================
+// EVIDENCE MANAGER
+// ============================================================
+const EvidenceManager = {
+  getNextId() {
+    const num = STATE.evidencias.length + 1;
+    return 'EVI-' + String(num).padStart(3,'0');
+  },
+  async add() {
+    // Validate required fields
+    const tipo = document.getElementById('ev-tipo').value;
+    const url = document.getElementById('ev-url').value.trim();
+    const titulo = document.getElementById('ev-titulo').value.trim();
+    const fecha = document.getElementById('ev-fecha').value;
+    let valid = true;
+    ['ev-tipo','ev-url','ev-titulo','ev-fecha'].forEach(id => {
+      document.getElementById(id).classList.remove('error');
+    });
+    if (!tipo) { document.getElementById('ev-tipo').classList.add('error'); valid = false; }
+    if (!url) { document.getElementById('ev-url').classList.add('error'); valid = false; }
+    if (!titulo) { document.getElementById('ev-titulo').classList.add('error'); valid = false; }
+    if (!fecha) { document.getElementById('ev-fecha').classList.add('error'); valid = false; }
+    if (!STATE.caso.numero) { UI.toast('Debe configurar un caso antes de agregar evidencias', 'error'); UI.navigate('caso'); return; }
+    if (!valid) { UI.toast('Por favor complete los campos obligatorios', 'error'); return; }
+    UI.showProgress('Calculando hashes...', 10);
+    try {
+      const id = EvidenceManager.getNextId();
+      const capturaTs = new Date().toISOString();
+      // Compute hash of URL+title+timestamp for content hash
+      const contentStr = url + '|' + titulo + '|' + fecha + '|' + capturaTs;
+      const contentHash = await Crypto.sha256text(contentStr);
+      UI.updateProgress(30, 'Procesando capturas...');
+      // Process screenshots
+      const screenshots = STATE.pendingScreenshots.slice();
+      UI.updateProgress(60, 'Procesando fuente HTML...');
+      // HTML source hash
+      const htmlSource = document.getElementById('ev-html-source').value;
+      let htmlHash = STATE.pendingHtmlHash;
+      if (htmlSource && !htmlHash) {
+        htmlHash = await Crypto.sha256text(htmlSource);
+      }
+      UI.updateProgress(80, 'Guardando evidencia...');
+      const isSocial = ['social','video','comment','profile','group'].includes(tipo);
+      const isVideo = tipo === 'video';
+      const ev = {
+        id: id,
+        tipo: tipo,
+        plataforma: document.getElementById('ev-plataforma').value || UI.detectPlatform(url),
+        url: url,
+        titulo: titulo,
+        fechaCaptura: fecha ? new Date(fecha).toISOString() : capturaTs,
+        metodoCaptura: document.getElementById('ev-metodo').value,
+        observaciones: document.getElementById('ev-observaciones').value.trim(),
+        // Hashes
+        hashContenido: contentHash,
+        hashHtmlFuente: htmlHash,
+        hashVideoArchivo: STATE.pendingVideoHash,
+        // Technical
+        ipLocal: document.getElementById('ev-ip-local').value.trim(),
+        ipServer: document.getElementById('ev-ip-server').value.trim(),
+        httpHeaders: document.getElementById('ev-http-headers').value.trim(),
+        sslCert: document.getElementById('ev-ssl-cert').value.trim(),
+        userAgent: document.getElementById('ev-useragent').value.trim(),
+        resolucionPantalla: document.getElementById('ev-resolucion-pantalla').value.trim(),
+        notasTecnicas: document.getElementById('ev-notas-tecnicas').value.trim(),
+        // Screenshots
+        screenshots: screenshots,
+        htmlSource: htmlSource,
+        // TSR
+        tsrToken: document.getElementById('ev-tsr-token').value.trim(),
+        // Social
+        postId: isSocial ? document.getElementById('ev-post-id').value.trim() : '',
+        autorNombre: isSocial ? document.getElementById('ev-autor-nombre').value.trim() : '',
+        autorId: isSocial ? document.getElementById('ev-autor-id').value.trim() : '',
+        fechaPublicacion: isSocial ? document.getElementById('ev-fecha-publi').value : '',
+        likes: isSocial ? (parseInt(document.getElementById('ev-likes').value)||0) : 0,
+        shares: isSocial ? (parseInt(document.getElementById('ev-shares').value)||0) : 0,
+        comments: isSocial ? (parseInt(document.getElementById('ev-comments').value)||0) : 0,
+        views: isSocial ? (parseInt(document.getElementById('ev-views').value)||0) : 0,
+        privacidad: isSocial ? document.getElementById('ev-privacidad').value : '',
+        // Video
+        duracion: isVideo ? document.getElementById('ev-duracion').value.trim() : '',
+        resolucionVideo: isVideo ? document.getElementById('ev-resolucion-video').value.trim() : '',
+        uploader: isVideo ? document.getElementById('ev-uploader').value.trim() : '',
+        fechaUpload: isVideo ? document.getElementById('ev-fecha-upload').value : '',
+        ytdlpCmd: isVideo ? document.getElementById('ev-ytdlp-cmd').value.trim() : '',
+        // Meta
+        numeroCaso: STATE.caso.numero,
+        perito: STATE.caso.perito,
+        herramienta: 'INDAGO Forense v' + APP_VERSION,
+        creadoEn: capturaTs
+      };
+      STATE.evidencias.push(ev);
+      ChainManager.addEntry('EVIDENCIA_AGREGADA',
+        `Evidencia ${id} agregada: "${titulo.substring(0,60)}" (${tipo}) — Hash: ${contentHash.substring(0,16)}...`,
+        { operador: STATE.caso.perito, evidenciaId: id, hashSnapshot: contentHash }
+      );
+      Storage.save();
+      UI.updateProgress(100, 'Evidencia guardada');
+      setTimeout(() => {
+        UI.hideProgress();
+        UI.clearEvidenceForm();
+        UI.updateBadge();
+        UI.renderList();
+        UI.navigate('lista');
+        UI.toast(`Evidencia ${id} agregada correctamente`, 'success');
+      }, 500);
+    } catch(err) {
+      UI.hideProgress();
+      UI.toast('Error al agregar evidencia: ' + err.message, 'error');
+      console.error(err);
+    }
+  },
+  delete(id) {
+    const idx = STATE.evidencias.findIndex(e => e.id === id);
+    if (idx === -1) return;
+    const ev = STATE.evidencias[idx];
+    STATE.evidencias.splice(idx, 1);
+    ChainManager.addEntry('EVIDENCIA_ELIMINADA',
+      `Evidencia ${id} eliminada: "${ev.titulo.substring(0,60)}"`,
+      { operador: STATE.caso.perito, evidenciaId: id }
+    );
+    Storage.save();
+    UI.updateBadge();
+    UI.renderList();
+    UI.updateVerifyDropdown();
+    UI.toast(`Evidencia ${id} eliminada. Registro en cadena de custodia actualizado.`, 'warning');
+  },
+  get(id) {
+    return STATE.evidencias.find(e => e.id === id);
+  },
+  async verify(id) {
+    const ev = EvidenceManager.get(id);
+    if (!ev) return null;
+    const contentStr = ev.url + '|' + ev.titulo + '|' + (ev.fechaCaptura ? ev.fechaCaptura.substring(0,16).replace('T',' ') : '') + '|' + ev.creadoEn;
+    const recomputed = await Crypto.sha256text(contentStr);
+    ChainManager.addEntry('VERIFICACION_HASH',
+      `Verificación de integridad de ${id}: Hash ${recomputed === ev.hashContenido ? 'COINCIDE' : 'NO COINCIDE'}`,
+      { operador: STATE.caso.perito, evidenciaId: id }
+    );
+    return { original: ev.hashContenido, recomputed: recomputed, match: recomputed === ev.hashContenido };
+  }
+};
+
+// ============================================================
+// REPORT GENERATOR
+// ============================================================
+const ReportGenerator = {
+  async pdf() {
+    if (!STATE.caso.numero) { UI.toast('Configure un caso primero', 'error'); return; }
+    if (STATE.evidencias.length === 0) { UI.toast('No hay evidencias para exportar', 'warning'); return; }
+    UI.showProgress('Generando PDF...', 5);
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const W = 210, M = 20;
+      const includeScreenshots = document.getElementById('pdf-include-screenshots').checked;
+      const includeChain = document.getElementById('pdf-include-chain').checked;
+      const includeHashes = document.getElementById('pdf-include-hashes').checked;
+      const now = new Date().toISOString();
+      const casoNum = STATE.caso.numero;
+
+      UI.updateProgress(10, 'Generando portada...');
+      // ---- COVER PAGE ----
+      doc.setFillColor(15, 39, 68);
+      doc.rect(0, 0, W, 80, 'F');
+      doc.setFillColor(201, 151, 44);
+      doc.rect(0, 80, W, 3, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('INDAGO FORENSE v' + APP_VERSION, W/2, 25, {align:'center'});
+      doc.setFontSize(18);
+      doc.text('INFORME PERICIAL DE', W/2, 42, {align:'center'});
+      doc.text('EVIDENCIA DIGITAL', W/2, 52, {align:'center'});
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Elaborado conforme a ISO/IEC 27037:2012 y RFC 3161', W/2, 65, {align:'center'});
+      doc.setTextColor(30, 40, 60);
+      doc.setFontSize(11);
+      let y = 100;
+      const addRow = (label, value) => {
+        doc.setFont('helvetica','bold'); doc.setFontSize(9);
+        doc.setTextColor(90, 106, 126);
+        doc.text(label.toUpperCase(), M, y);
+        doc.setFont('helvetica','normal'); doc.setFontSize(11);
+        doc.setTextColor(30, 40, 60);
+        doc.text(String(value || '—'), M + 55, y);
+        y += 9;
+      };
+      addRow('Número de expediente', casoNum);
+      addRow('Tipo de caso', STATE.caso.tipo || '—');
+      addRow('Perito responsable', STATE.caso.perito);
+      addRow('Cédula profesional', STATE.caso.cedula);
+      addRow('Especialidad', STATE.caso.especialidad || '—');
+      addRow('Institución', STATE.caso.institucion || '—');
+      addRow('Cliente / solicitante', STATE.caso.cliente || '—');
+      addRow('Fecha de inicio', STATE.caso.fechaInicio ? STATE.caso.fechaInicio.substring(0,10) : '—');
+      addRow('Fecha del informe', now.substring(0,10));
+      addRow('Total de evidencias', STATE.evidencias.length);
+      y += 10;
+      doc.setFontSize(9); doc.setTextColor(90,106,126);
+      doc.setFont('helvetica','bold');
+      doc.text('DESCRIPCIÓN DEL CASO', M, y); y += 6;
+      doc.setFont('helvetica','normal'); doc.setTextColor(30,40,60);
+      const descLines = doc.splitTextToSize(STATE.caso.descripcion || '—', W - M*2);
+      doc.text(descLines, M, y); y += descLines.length * 5 + 10;
+      // Standards box
+      doc.setFillColor(240, 244, 248);
+      doc.setDrawColor(208, 218, 234);
+      doc.roundedRect(M, y, W-M*2, 45, 3, 3, 'FD');
+      doc.setFontSize(8); doc.setTextColor(90,106,126); doc.setFont('helvetica','bold');
+      doc.text('DECLARACIÓN DE CONFORMIDAD', M+5, y+6);
+      doc.setFont('helvetica','normal'); doc.setTextColor(30,40,60);
+      const stdText = 'El presente informe ha sido elaborado siguiendo los procedimientos establecidos en ISO/IEC 27037:2012 (Evidencia Digital), ISO/IEC 27041:2015, ISO/IEC 27042:2015 e ISO/IEC 27043:2015. El sellado de tiempo se realizó conforme al protocolo RFC 3161. Los hashes criptográficos SHA-256 fueron calculados mediante la API WebCrypto del navegador.';
+      const stdLines = doc.splitTextToSize(stdText, W-M*2-10);
+      doc.text(stdLines, M+5, y+12);
+
+      UI.updateProgress(30, 'Tabla de evidencias...');
+      // ---- PAGE 2: EVIDENCE TABLE ----
+      doc.addPage();
+      doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(15,39,68);
+      doc.text('RESUMEN DE EVIDENCIAS', M, 25);
+      doc.setFillColor(201,151,44); doc.rect(M, 28, W-M*2, 1, 'F');
+
+      const tableHead = [['ID', 'Tipo', 'Plataforma', 'Título', 'Fecha Captura', 'Hash (16 chars)']];
+      const tableBody = STATE.evidencias.map(e => [
+        e.id, UI.tipoLabel(e.tipo), e.plataforma || '—',
+        (e.titulo||'').substring(0,35), e.fechaCaptura ? e.fechaCaptura.substring(0,16).replace('T',' ') : '—',
+        (e.hashContenido||'').substring(0,16)+'...'
+      ]);
+      doc.autoTable({
+        head: tableHead, body: tableBody,
+        startY: 35, margin: {left: M, right: M},
+        styles: {fontSize: 7, cellPadding: 3},
+        headStyles: {fillColor: [15,39,68], textColor: [255,255,255], fontStyle: 'bold'},
+        alternateRowStyles: {fillColor: [240,244,248]},
+        columnStyles: { 0:{cellWidth:18}, 1:{cellWidth:22}, 2:{cellWidth:22}, 3:{cellWidth:55}, 4:{cellWidth:30}, 5:{cellWidth:35} }
+      });
+
+      UI.updateProgress(50, 'Páginas de evidencias...');
+      // ---- PER-EVIDENCE PAGES ----
+      let pageCount = 0;
+      for (const ev of STATE.evidencias) {
+        pageCount++;
+        UI.updateProgress(50 + Math.floor(pageCount / STATE.evidencias.length * 30), `Evidencia ${ev.id}...`);
+        doc.addPage();
+        doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(15,39,68);
+        doc.text(`EVIDENCIA ${ev.id}`, M, 20);
+        doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(90,106,126);
+        doc.text(`${UI.tipoLabel(ev.tipo)} — ${ev.plataforma || ''}`, M, 27);
+        doc.setFillColor(201,151,44); doc.rect(M, 29, W-M*2, 0.5, 'F');
+        const evRows = [
+          ['URL', (ev.url||'').substring(0,80)],
+          ['Título', ev.titulo||'—'],
+          ['Tipo', UI.tipoLabel(ev.tipo)],
+          ['Plataforma', ev.plataforma||'—'],
+          ['Fecha Captura', ev.fechaCaptura ? ev.fechaCaptura.replace('T',' ').substring(0,19)+' UTC' : '—'],
+          ['Método Captura', ev.metodoCaptura||'—'],
+          ['Perito', ev.perito||STATE.caso.perito||'—'],
+          ['Herramienta', ev.herramienta||'—'],
+          ['Hash SHA-256', includeHashes ? (ev.hashContenido||'—') : (ev.hashContenido||'—').substring(0,32)+'...'],
+          ['Hash Fuente HTML', includeHashes ? (ev.hashHtmlFuente||'—') : ev.hashHtmlFuente ? ev.hashHtmlFuente.substring(0,32)+'...' : '—'],
+          ['Hash Video', ev.hashVideoArchivo||'—'],
+          ['Token TSR', ev.tsrToken ? ev.tsrToken.substring(0,40)+'...' : '—'],
+          ['IP Local', ev.ipLocal||'—'],
+          ['IP Servidor', ev.ipServer||'—'],
+          ['User-Agent', (ev.userAgent||'—').substring(0,60)],
+          ['Resolución', ev.resolucionPantalla||'—'],
+          ['Observaciones', (ev.observaciones||'—').substring(0,100)]
+        ];
+        if (['social','video','comment','profile','group'].includes(ev.tipo)) {
+          evRows.push(['ID Publicación', ev.postId||'—']);
+          evRows.push(['Autor', ev.autorNombre||'—']);
+          evRows.push(['ID Autor', ev.autorId||'—']);
+          evRows.push(['Fecha Publicación', ev.fechaPublicacion ? ev.fechaPublicacion.substring(0,16) : '—']);
+          evRows.push(['Likes / Me gusta', String(ev.likes||0)]);
+          evRows.push(['Compartidos', String(ev.shares||0)]);
+          evRows.push(['Comentarios', String(ev.comments||0)]);
+          evRows.push(['Visualizaciones', String(ev.views||0)]);
+          evRows.push(['Privacidad', ev.privacidad||'—']);
+        }
+        if (ev.tipo === 'video') {
+          evRows.push(['Duración', ev.duracion||'—']);
+          evRows.push(['Resolución Video', ev.resolucionVideo||'—']);
+          evRows.push(['Uploader/Canal', ev.uploader||'—']);
+          evRows.push(['Fecha Upload', ev.fechaUpload||'—']);
+          evRows.push(['Comando yt-dlp', (ev.ytdlpCmd||'—').substring(0,80)]);
+        }
+        doc.autoTable({
+          body: evRows, startY: 33, margin: {left: M, right: M},
+          styles: {fontSize: 7.5, cellPadding: 3},
+          columnStyles: { 0:{cellWidth:42, fontStyle:'bold', textColor:[90,106,126]}, 1:{cellWidth:W-M*2-42} },
+          alternateRowStyles: {fillColor: [248,250,252]},
+          theme: 'plain'
+        });
+        // Add screenshots if present
+        if (includeScreenshots && ev.screenshots && ev.screenshots.length > 0) {
+          let finalY = doc.lastAutoTable.finalY + 5;
+          if (finalY > 260) { doc.addPage(); finalY = 20; }
+          doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(15,39,68);
+          doc.text('CAPTURAS DE PANTALLA', M, finalY); finalY += 5;
+          for (let i = 0; i < Math.min(ev.screenshots.length, 3); i++) {
+            const sc = ev.screenshots[i];
+            if (sc.data && sc.data.startsWith('data:image')) {
+              try {
+                const imgType = sc.data.includes('png') ? 'PNG' : 'JPEG';
+                if (finalY + 60 > 280) { doc.addPage(); finalY = 20; }
+                doc.addImage(sc.data, imgType, M, finalY, W-M*2, 55);
+                finalY += 58;
+                doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(90,106,126);
+                doc.text(`[${i+1}] ${sc.name} — SHA-256: ${sc.hash||'—'}`, M, finalY);
+                finalY += 6;
+              } catch(imgErr) { console.warn('Image error:', imgErr); }
+            }
+          }
+        }
+      }
+
+      // ---- CHAIN OF CUSTODY PAGE ----
+      if (includeChain && STATE.cadena.length > 0) {
+        UI.updateProgress(85, 'Cadena de custodia...');
+        doc.addPage();
+        doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(15,39,68);
+        doc.text('CADENA DE CUSTODIA', M, 20);
+        doc.setFillColor(201,151,44); doc.rect(M, 23, W-M*2, 0.5, 'F');
+        const chainHead = [['#', 'Tipo', 'Descripción', 'Operador', 'Fecha/Hora UTC']];
+        const chainBody = [...STATE.cadena].reverse().map((e,i) => [
+          String(i+1), e.tipo, (e.descripcion||'').substring(0,60),
+          e.operador||'—', e.timestamp ? e.timestamp.substring(0,19).replace('T',' ') : '—'
+        ]);
+        doc.autoTable({
+          head: chainHead, body: chainBody, startY: 28, margin:{left:M,right:M},
+          styles:{fontSize:7, cellPadding:2.5},
+          headStyles:{fillColor:[15,39,68],textColor:[255,255,255],fontStyle:'bold'},
+          alternateRowStyles:{fillColor:[240,244,248]},
+          columnStyles:{0:{cellWidth:10},1:{cellWidth:35},2:{cellWidth:80},3:{cellWidth:30},4:{cellWidth:32}}
+        });
+      }
+
+      // ---- CERTIFICATION PAGE ----
+      UI.updateProgress(95, 'Página de certificación...');
+      doc.addPage();
+      doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(15,39,68);
+      doc.text('CERTIFICACIÓN DEL PERITO', M, 25);
+      doc.setFillColor(201,151,44); doc.rect(M, 28, W-M*2, 0.5, 'F');
+      doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(30,40,60);
+      const certText = `Yo, ${STATE.caso.perito || '___'}, con cédula/matrícula profesional número ${STATE.caso.cedula || '___'}, en mi calidad de perito en ${STATE.caso.especialidad || 'informática forense'}, declaro bajo protesta de decir verdad que:\n\n1. El presente informe pericial fue elaborado por mí de manera personal y profesional.\n\n2. Las evidencias digitales documentadas en este informe fueron recolectadas y preservadas conforme a los estándares ISO/IEC 27037:2012.\n\n3. Los hashes criptográficos SHA-256 fueron calculados en el momento de la recolección y garantizan la integridad de las evidencias.\n\n4. Las marcas de tiempo registradas corresponden al momento real de la captura, verificadas mediante el protocolo RFC 3161 cuando aplica.\n\n5. No he alterado, modificado ni manipulado ninguna de las evidencias recolectadas.\n\n6. El presente informe fue generado con la herramienta INDAGO Forense v${APP_VERSION} el día ${now.substring(0,10)}.`;
+      const certLines = doc.splitTextToSize(certText, W-M*2);
+      doc.text(certLines, M, 38);
+      const sigY = 38 + certLines.length*5 + 20;
+      doc.setDrawColor(30,40,60); doc.line(M, sigY, M+70, sigY);
+      doc.setFontSize(9); doc.setTextColor(30,40,60);
+      doc.text(STATE.caso.perito || '___', M, sigY+5);
+      doc.setFontSize(8); doc.setTextColor(90,106,126);
+      doc.text('Firma del Perito', M, sigY+10);
+      doc.text(`Cédula: ${STATE.caso.cedula || '___'}`, M, sigY+15);
+      doc.text(`Fecha: ${now.substring(0,10)}`, M, sigY+20);
+      // Footer on all pages
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFontSize(7); doc.setTextColor(150,160,175);
+        doc.text(`INDAGO Forense v${APP_VERSION} — Expediente: ${casoNum} — Generado: ${now.substring(0,19)} UTC — Página ${p} de ${totalPages}`, W/2, 293, {align:'center'});
+        doc.setDrawColor(208,218,234); doc.line(M, 289, W-M, 289);
+      }
+      UI.updateProgress(100, 'PDF generado');
+      doc.save(`INFORME-PERICIAL-${casoNum}-${now.substring(0,10)}.pdf`);
+      ChainManager.addEntry('CASO_EXPORTADO', `Informe PDF exportado — ${STATE.evidencias.length} evidencias`, { operador: STATE.caso.perito });
+      setTimeout(() => { UI.hideProgress(); UI.toast('Informe PDF generado correctamente', 'success'); }, 500);
+    } catch(err) {
+      UI.hideProgress();
+      UI.toast('Error al generar PDF: ' + err.message, 'error');
+      console.error('PDF Error:', err);
+    }
+  },
+
+  async zip() {
+    if (!STATE.caso.numero) { UI.toast('Configure un caso primero', 'error'); return; }
+    UI.showProgress('Generando paquete ZIP...', 10);
+    try {
+      const zip = new JSZip();
+      const casoNum = STATE.caso.numero.replace(/[^a-zA-Z0-9-_]/g,'_');
+      const root = zip.folder(`CASO-${casoNum}-EVIDENCIAS`);
+      const now = new Date().toISOString();
+      root.file('CASO_INFO.json', JSON.stringify({...STATE.caso, exportadoEn: now, herramienta:'INDAGO Forense v'+APP_VERSION}, null, 2));
+      root.file('CADENA_CUSTODIA.json', JSON.stringify(STATE.cadena, null, 2));
+      UI.updateProgress(30, 'Procesando evidencias...');
+      const eviFolder = root.folder('EVIDENCIAS');
+      let verificationLines = [`VERIFICACIÓN DE HASHES SHA-256\nGenerado: ${now}\nCaso: ${STATE.caso.numero}\n\n`];
+      for (let i = 0; i < STATE.evidencias.length; i++) {
+        const ev = STATE.evidencias[i];
+        UI.updateProgress(30 + Math.floor(i / STATE.evidencias.length * 50), `Empaquetando ${ev.id}...`);
+        const eviDir = eviFolder.folder(ev.id);
+        const meta = {...ev};
+        delete meta.screenshots;
+        delete meta.htmlSource;
+        eviDir.file('METADATOS.json', JSON.stringify(meta, null, 2));
+        let hashesText = `HASHES — ${ev.id}\n${'='.repeat(40)}\n`;
+        hashesText += `Hash Contenido SHA-256: ${ev.hashContenido||'—'}\n`;
+        hashesText += `Hash Fuente HTML SHA-256: ${ev.hashHtmlFuente||'—'}\n`;
+        hashesText += `Hash Archivo Video SHA-256: ${ev.hashVideoArchivo||'—'}\n`;
+        if (ev.screenshots) {
+          ev.screenshots.forEach((sc,si) => { hashesText += `Hash Captura ${si+1} SHA-256: ${sc.hash||'—'}\n`; });
+        }
+        eviDir.file('HASHES.txt', hashesText);
+        verificationLines.push(`${ev.id}: ${ev.hashContenido||'SIN_HASH'}\n`);
+        if (ev.screenshots) {
+          ev.screenshots.forEach((sc,si) => {
+            if (sc.data && sc.data.startsWith('data:image')) {
+              const b64 = sc.data.split(',')[1];
+              const ext = sc.data.includes('png') ? 'png' : 'jpg';
+              eviDir.file(`CAPTURA_${String(si+1).padStart(3,'0')}.${ext}`, b64, {base64:true});
+            }
+          });
+        }
+        if (ev.htmlSource) {
+          eviDir.file('FUENTE_HTML.html', ev.htmlSource);
+        }
+      }
+      root.file('VERIFICACION_SHA256.txt', verificationLines.join(''));
+      UI.updateProgress(90, 'Comprimiendo...');
+      const blob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:6}});
+      saveAs(blob, `CASO-${casoNum}-EVIDENCIAS-${now.substring(0,10)}.zip`);
+      ChainManager.addEntry('CASO_EXPORTADO', `Paquete ZIP exportado — ${STATE.evidencias.length} evidencias`, { operador: STATE.caso.perito });
+      setTimeout(() => { UI.hideProgress(); UI.toast('Paquete ZIP generado correctamente', 'success'); }, 500);
+    } catch(err) {
+      UI.hideProgress();
+      UI.toast('Error al generar ZIP: ' + err.message, 'error');
+      console.error('ZIP Error:', err);
+    }
+  },
+
+  csv() {
+    if (STATE.evidencias.length === 0) { UI.toast('No hay evidencias para exportar', 'warning'); return; }
+    const headers = ['ID','Tipo','Plataforma','URL','Título','Fecha Captura','Método','Hash Contenido','Hash HTML','Hash Video','IP Local','IP Servidor','User-Agent','Post ID','Autor','ID Autor','Fecha Publicación','Likes','Shares','Comentarios','Vistas','Privacidad','Duración','Resolución Video','Uploader','Token TSR','Observaciones','Caso','Perito'];
+    const rows = STATE.evidencias.map(e => [
+      e.id, UI.tipoLabel(e.tipo), e.plataforma||'', e.url||'', e.titulo||'',
+      e.fechaCaptura||'', e.metodoCaptura||'', e.hashContenido||'', e.hashHtmlFuente||'', e.hashVideoArchivo||'',
+      e.ipLocal||'', e.ipServer||'', e.userAgent||'',
+      e.postId||'', e.autorNombre||'', e.autorId||'', e.fechaPublicacion||'',
+      e.likes||0, e.shares||0, e.comments||0, e.views||0, e.privacidad||'',
+      e.duracion||'', e.resolucionVideo||'', e.uploader||'', e.tsrToken?e.tsrToken.substring(0,30)+'...':'',
+      e.observaciones||'', e.numeroCaso||'', e.perito||''
+    ]);
+    const csvContent = [headers, ...rows].map(row =>
+      row.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')
+    ).join('\r\n');
+    const blob = new Blob(['\uFEFF' + csvContent], {type:'text/csv;charset=utf-8'});
+    saveAs(blob, `EVIDENCIAS-${STATE.caso.numero||'SIN-CASO'}-${new Date().toISOString().substring(0,10)}.csv`);
+    ChainManager.addEntry('CASO_EXPORTADO', `CSV exportado — ${STATE.evidencias.length} evidencias`, { operador: STATE.caso.perito });
+    UI.toast('CSV exportado correctamente', 'success');
+  },
+
+  json() {
+    const data = { caso: STATE.caso, evidencias: STATE.evidencias, cadena: STATE.cadena, exportadoEn: new Date().toISOString(), version: APP_VERSION };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    saveAs(blob, `CASO-${STATE.caso.numero||'SIN-CASO'}-COMPLETO-${Date.now()}.json`);
+    ChainManager.addEntry('CASO_EXPORTADO', 'JSON completo del caso exportado', { operador: STATE.caso.perito });
+    UI.toast('JSON del caso exportado correctamente', 'success');
+  }
+};
+
+// ============================================================
+// UI MODULE
+// ============================================================
+const UI = {
+  navigate(section) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const secEl = document.getElementById('sec-' + section);
+    if (secEl) secEl.classList.add('active');
+    const navEl = document.getElementById('nav-' + section);
+    if (navEl) navEl.classList.add('active');
+    if (section === 'lista') { UI.renderList(); UI.updateVerifyDropdown(); }
+    if (section === 'cadena') UI.renderChain();
+    if (section === 'verificar') UI.updateVerifyDropdown();
+    // Log view actions for evidence-related sections
+    if (section === 'lista' && STATE.evidencias.length > 0) {
+      ChainManager.addEntry('EVIDENCIA_VISTA', `Lista de evidencias consultada (${STATE.evidencias.length} items)`, { operador: STATE.caso.perito || 'Perito' });
+    }
+  },
+
+  updateHeader() {
+    const headerCase = document.getElementById('header-case');
+    const headerStatus = document.getElementById('header-status');
+    if (STATE.caso.numero) {
+      headerCase.textContent = `Expediente: ${STATE.caso.numero}${STATE.caso.perito ? ' — Perito: ' + STATE.caso.perito : ''}`;
+      headerStatus.textContent = STATE.caso.estado === 'abierto' ? 'CASO ABIERTO' : 'CASO CERRADO';
+      headerStatus.className = STATE.caso.estado === 'abierto' ? '' : 'closed';
+    } else {
+      headerCase.textContent = 'Sin caso activo — Configure un caso en la sección Caso';
+      headerStatus.textContent = 'SIN CASO';
+      headerStatus.className = 'closed';
+    }
+  },
+
+  updateBadge() {
+    document.getElementById('badge-count').textContent = STATE.evidencias.length;
+  },
+
+  tipoLabel(tipo) {
+    const labels = { web:'Página Web', social:'Red Social', video:'Video', comment:'Comentario', profile:'Perfil', group:'Grupo/Canal', file:'Archivo', email:'Correo', other:'Otro' };
+    return labels[tipo] || tipo || '—';
+  },
+
+  tipoIcon(tipo) {
+    const icons = { web:'🌐', social:'📱', video:'🎬', comment:'💬', profile:'👤', group:'👥', file:'📎', email:'✉️', other:'📄' };
+    return icons[tipo] || '📄';
+  },
+
+  tipoBadgeClass(tipo) {
+    const classes = { web:'badge-web', social:'badge-social', video:'badge-video', comment:'badge-comment', profile:'badge-profile', group:'badge-group', file:'badge-file', email:'badge-email', other:'badge-other' };
+    return classes[tipo] || 'badge-other';
+  },
+
+  detectPlatform(url) {
+    if (!url) return '';
+    url = url.toLowerCase();
+    if (url.includes('facebook.com') || url.includes('fb.com')) return 'Facebook';
+    if (url.includes('instagram.com')) return 'Instagram';
+    if (url.includes('twitter.com') || url.includes('x.com')) return 'Twitter/X';
+    if (url.includes('tiktok.com')) return 'TikTok';
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube';
+    if (url.includes('linkedin.com')) return 'LinkedIn';
+    if (url.includes('telegram.org') || url.includes('t.me')) return 'Telegram';
+    if (url.includes('whatsapp.com')) return 'WhatsApp';
+    return 'Web General';
+  },
+
+  autoDetectPlatform() {
+    const url = document.getElementById('ev-url').value;
+    const platform = UI.detectPlatform(url);
+    const sel = document.getElementById('ev-plataforma');
+    if (platform) {
+      for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === platform || sel.options[i].text === platform) {
+          sel.selectedIndex = i; break;
+        }
+      }
+    }
+  },
+
+  generateYtdlp() {
+    const url = document.getElementById('ev-url').value.trim();
+    const tipo = document.getElementById('ev-tipo').value;
+    if (tipo !== 'video' || !url) return;
+    const platform = UI.detectPlatform(url);
+    const casoNum = STATE.caso.numero || 'CASO';
+    let cmd = `yt-dlp \\
+  --write-info-json \\
+  --write-thumbnail \\
+  --write-subs \\
+  --sub-langs all \\
+  --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \\
+  --merge-output-format mp4 \\
+  --add-metadata \\
+  --print-traffic \\
+  -o "${casoNum}_%(id)s_%(title)s.%(ext)s" \\
+  "${url}"`;
+    document.getElementById('ev-ytdlp-cmd').value = cmd;
+  },
+
+  updateEvidenceForm() {
+    const tipo = document.getElementById('ev-tipo').value;
+    const isSocial = ['social','video','comment','profile','group'].includes(tipo);
+    const isVideo = tipo === 'video';
+    document.getElementById('card-social').style.display = isSocial ? 'block' : 'none';
+    document.getElementById('card-video').style.display = isVideo ? 'block' : 'none';
+    if (isVideo) UI.generateYtdlp();
+  },
+
+  updateCharCount() {
+    const src = document.getElementById('ev-html-source').value;
+    document.getElementById('html-char-count').textContent = src.length.toLocaleString() + ' caracteres';
+  },
+
+  async hashHtmlSource() {
+    const src = document.getElementById('ev-html-source').value;
+    if (!src.trim()) { UI.toast('No hay código fuente para hashear', 'warning'); return; }
+    const hash = await Crypto.sha256text(src);
+    STATE.pendingHtmlHash = hash;
+    document.getElementById('html-hash-value').textContent = hash;
+    document.getElementById('html-hash-display').style.display = 'block';
+    UI.toast('Hash del fuente calculado', 'success');
+  },
+
+  async hashVideoFile() {
+    const fileInput = document.getElementById('ev-video-file');
+    const file = fileInput.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('ev-video-hash-status');
+    statusEl.textContent = 'Calculando hash...';
+    statusEl.style.color = 'var(--warning)';
+    try {
+      const buffer = await file.arrayBuffer();
+      const hash = await Crypto.sha256buffer(buffer);
+      STATE.pendingVideoHash = hash;
+      document.getElementById('ev-video-hash').value = hash;
+      statusEl.textContent = '✓ Hash calculado';
+      statusEl.style.color = 'var(--success)';
+      UI.toast('Hash SHA-256 del video calculado', 'success');
+    } catch(err) {
+      statusEl.textContent = 'Error al calcular hash';
+      statusEl.style.color = 'var(--danger)';
+      UI.toast('Error al calcular hash del video: ' + err.message, 'error');
+    }
+  },
+
+  loadInfoJson() {
+    const file = document.getElementById('ev-info-json').files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const info = JSON.parse(e.target.result);
+        const display = document.getElementById('ev-info-json-parsed');
+        const fields = [];
+        if (info.title) fields.push(`<strong>Título:</strong> ${info.title}`);
+        if (info.uploader) { fields.push(`<strong>Canal:</strong> ${info.uploader}`); document.getElementById('ev-uploader').value = info.uploader; }
+        if (info.upload_date) fields.push(`<strong>Fecha subida:</strong> ${info.upload_date}`);
+        if (info.duration) { const d = info.duration; const mm = Math.floor(d/60), ss = d%60; const dur = `${mm}:${String(ss).padStart(2,'0')}`; fields.push(`<strong>Duración:</strong> ${dur}`); document.getElementById('ev-duracion').value = dur; }
+        if (info.view_count) { fields.push(`<strong>Vistas:</strong> ${info.view_count.toLocaleString()}`); document.getElementById('ev-views').value = info.view_count; }
+        if (info.like_count) { fields.push(`<strong>Likes:</strong> ${info.like_count.toLocaleString()}`); document.getElementById('ev-likes').value = info.like_count; }
+        if (info.id) { fields.push(`<strong>ID:</strong> ${info.id}`); document.getElementById('ev-post-id').value = info.id; }
+        if (info.height && info.width) { const res = `${info.width}x${info.height}`; fields.push(`<strong>Resolución:</strong> ${res}`); document.getElementById('ev-resolucion-video').value = res; }
+        display.innerHTML = '<div style="background:#f0fff4;padding:10px;border-radius:6px;border:1px solid var(--success)">' + fields.join(' &nbsp;|&nbsp; ') + '</div>';
+        UI.toast('Metadatos del video cargados', 'success');
+      } catch(err) {
+        UI.toast('Error al parsear .info.json: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  },
+
+  handleScreenshotDrop(event) {
+    event.preventDefault();
+    document.getElementById('screenshot-drop').classList.remove('drag-over');
+    const files = Array.from(event.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    UI.processScreenshots(files);
+  },
+
+  addScreenshots(event) {
+    const files = Array.from(event.target.files);
+    UI.processScreenshots(files);
+    event.target.value = '';
+  },
+
+  processScreenshots(files) {
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const data = e.target.result;
+        const buffer = await fetch(data).then(r => r.arrayBuffer()).catch(() => new TextEncoder().encode(data).buffer);
+        const hash = await Crypto.sha256buffer(buffer);
+        const sc = { name: file.name, size: file.size, type: file.type, data: data, hash: hash };
+        STATE.pendingScreenshots.push(sc);
+        UI.renderScreenshotThumbs();
+      };
+      reader.readAsDataURL(file);
+    });
+  },
+
+  renderScreenshotThumbs() {
+    const container = document.getElementById('screenshot-thumbs');
+    container.innerHTML = '';
+    STATE.pendingScreenshots.forEach((sc, i) => {
+      const div = document.createElement('div');
+      div.className = 'thumb-item';
+      div.title = `${sc.name}\nSHA-256: ${sc.hash}`;
+      div.innerHTML = `<img src="${sc.data}" alt="${sc.name}"><button class="thumb-remove" onclick="UI.removeScreenshot(${i})">✕</button>`;
+      container.appendChild(div);
+    });
+  },
+
+  removeScreenshot(idx) {
+    STATE.pendingScreenshots.splice(idx, 1);
+    UI.renderScreenshotThumbs();
+  },
+
+  clearEvidenceForm() {
+    const fields = ['ev-tipo','ev-url','ev-titulo','ev-fecha','ev-metodo','ev-observaciones',
+      'ev-post-id','ev-autor-nombre','ev-autor-id','ev-fecha-publi','ev-likes','ev-shares','ev-comments','ev-views','ev-privacidad',
+      'ev-duracion','ev-resolucion-video','ev-uploader','ev-fecha-upload','ev-ytdlp-cmd','ev-video-hash',
+      'ev-ip-local','ev-ip-server','ev-http-headers','ev-ssl-cert','ev-notas-tecnicas',
+      'ev-html-source','ev-tsr-token'];
+    fields.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.value = ''; el.classList.remove('error'); }
+    });
+    // Reset auto-filled
+    document.getElementById('ev-useragent').value = navigator.userAgent;
+    document.getElementById('ev-resolucion-pantalla').value = `${screen.width}x${screen.height}`;
+    document.getElementById('ev-fecha').value = UI.nowLocal();
+    // Hide dynamic sections
+    document.getElementById('card-social').style.display = 'none';
+    document.getElementById('card-video').style.display = 'none';
+    document.getElementById('html-hash-display').style.display = 'none';
+    document.getElementById('html-char-count').textContent = '0 caracteres';
+    document.getElementById('tsr-saved-display').style.display = 'none';
+    document.getElementById('ev-plataforma').selectedIndex = 0;
+    STATE.pendingScreenshots = [];
+    STATE.pendingHtmlHash = '';
+    STATE.pendingVideoHash = '';
+    UI.renderScreenshotThumbs();
+  },
+
+  nowLocal() {
+    const d = new Date();
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60000);
+    return local.toISOString().substring(0, 16);
+  },
+
+  renderList() {
+    const container = document.getElementById('lista-container');
+    const search = (document.getElementById('search-input').value || '').toLowerCase();
+    const filterTipo = document.getElementById('filter-tipo').value;
+    const filterPlat = document.getElementById('filter-plataforma').value;
+    const sortBy = document.getElementById('sort-by').value;
+    let items = [...STATE.evidencias];
+    if (search) items = items.filter(e =>
+      (e.url||'').toLowerCase().includes(search) ||
+      (e.titulo||'').toLowerCase().includes(search) ||
+      (e.observaciones||'').toLowerCase().includes(search) ||
+      (e.id||'').toLowerCase().includes(search)
+    );
+    if (filterTipo) items = items.filter(e => e.tipo === filterTipo);
+    if (filterPlat) items = items.filter(e => e.plataforma === filterPlat);
+    items.sort((a,b) => {
+      if (sortBy === 'fecha-desc') return new Date(b.fechaCaptura||0) - new Date(a.fechaCaptura||0);
+      if (sortBy === 'fecha-asc') return new Date(a.fechaCaptura||0) - new Date(b.fechaCaptura||0);
+      if (sortBy === 'tipo') return (a.tipo||'').localeCompare(b.tipo||'');
+      if (sortBy === 'id') return (a.id||'').localeCompare(b.id||'');
+      return 0;
+    });
+    if (items.length === 0) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📭</div><h3>${STATE.evidencias.length === 0 ? 'Sin evidencias aún' : 'Sin resultados'}</h3><p>${STATE.evidencias.length === 0 ? 'Agregue la primera evidencia usando la sección "Nueva Evidencia"' : 'Pruebe con otros filtros de búsqueda'}</p></div>`;
+      return;
+    }
+    const grid = document.createElement('div');
+    grid.className = 'evidence-grid';
+    items.forEach(ev => {
+      const card = document.createElement('div');
+      card.className = 'evi-card';
+      const thumb = ev.screenshots && ev.screenshots.length > 0 ? `<img class="evi-thumb" src="${ev.screenshots[0].data}" alt="Captura">` : '';
+      const hashShort = (ev.hashContenido||'').substring(0,16);
+      const dateStr = ev.fechaCaptura ? ev.fechaCaptura.substring(0,16).replace('T',' ') : '—';
+      card.innerHTML = `
+        ${thumb}
+        <div class="evi-card-header">
+          <span class="evi-id">${ev.id}</span>
+          <span class="badge ${UI.tipoBadgeClass(ev.tipo)}">${UI.tipoIcon(ev.tipo)} ${UI.tipoLabel(ev.tipo)}</span>
+        </div>
+        <div class="evi-title">${UI.escHtml(ev.titulo||'Sin título')}</div>
+        <div class="evi-url" title="${UI.escHtml(ev.url||'')}">${UI.escHtml((ev.url||'').substring(0,60))}${(ev.url||'').length>60?'…':''}</div>
+        <div class="evi-meta">📅 ${dateStr} UTC &nbsp;·&nbsp; ${ev.plataforma||'—'}</div>
+        ${hashShort ? `<div class="evi-hash" title="SHA-256: ${ev.hashContenido||''}">🔑 ${hashShort}…</div>` : ''}
+        <div class="evi-actions">
+          <button class="btn btn-sm btn-outline" onclick="UI.viewEvidence('${ev.id}')">👁 Ver</button>
+          <button class="btn btn-sm btn-outline" onclick="UI.verifyEvidenceCard('${ev.id}')">🔍 Verificar</button>
+          <button class="btn btn-sm btn-danger" onclick="UI.confirmDelete('${ev.id}')">🗑</button>
+        </div>`;
+      grid.appendChild(card);
+    });
+    container.innerHTML = '';
+    container.appendChild(grid);
+  },
+
+  viewEvidence(id) {
+    const ev = EvidenceManager.get(id);
+    if (!ev) return;
+    ChainManager.addEntry('EVIDENCIA_VISTA', `Evidencia ${id} consultada: "${(ev.titulo||'').substring(0,40)}"`, { operador: STATE.caso.perito, evidenciaId: id });
+    const rows = [
+      ['ID', ev.id], ['Tipo', `${UI.tipoIcon(ev.tipo)} ${UI.tipoLabel(ev.tipo)}`],
+      ['Plataforma', ev.plataforma||'—'], ['URL', `<a href="${UI.escHtml(ev.url||'')}" target="_blank" style="word-break:break-all">${UI.escHtml(ev.url||'—')}</a>`],
+      ['Título', ev.titulo||'—'], ['Fecha Captura', ev.fechaCaptura ? ev.fechaCaptura.replace('T',' ') + ' UTC' : '—'],
+      ['Método', ev.metodoCaptura||'—'], ['Observaciones', ev.observaciones||'—'],
+      ['Hash Contenido SHA-256', `<span style="font-family:monospace;font-size:0.8rem;color:var(--success)">${ev.hashContenido||'—'}</span>`],
+      ['Hash Fuente HTML SHA-256', `<span style="font-family:monospace;font-size:0.8rem;color:var(--success)">${ev.hashHtmlFuente||'—'}</span>`],
+      ['Hash Video SHA-256', ev.hashVideoArchivo ? `<span style="font-family:monospace;font-size:0.8rem">${ev.hashVideoArchivo}</span>` : '—'],
+      ['Token TSR', ev.tsrToken ? `<span style="font-family:monospace;font-size:0.75rem;word-break:break-all">${ev.tsrToken.substring(0,80)}…</span>` : '—'],
+      ['IP Local', ev.ipLocal||'—'], ['IP Servidor', ev.ipServer||'—'],
+      ['User-Agent', ev.userAgent ? `<span style="font-size:0.78rem">${UI.escHtml(ev.userAgent)}</span>` : '—'],
+      ['Resolución Pantalla', ev.resolucionPantalla||'—'],
+      ['Cabeceras HTTP', ev.httpHeaders ? `<pre style="font-size:0.75rem;max-height:100px;overflow:auto">${UI.escHtml(ev.httpHeaders)}</pre>` : '—'],
+      ['Certificado SSL', ev.sslCert ? `<pre style="font-size:0.75rem;max-height:80px;overflow:auto">${UI.escHtml(ev.sslCert)}</pre>` : '—'],
+      ['Perito', ev.perito||'—'], ['Herramienta', ev.herramienta||'—'], ['Caso', ev.numeroCaso||'—']
+    ];
+    if (['social','video','comment','profile','group'].includes(ev.tipo)) {
+      rows.push(['--- DATOS DE RED SOCIAL ---',''],
+        ['ID Publicación', ev.postId||'—'], ['Autor', ev.autorNombre||'—'], ['ID Autor', ev.autorId||'—'],
+        ['Fecha Publicación', ev.fechaPublicacion||'—'], ['Likes', String(ev.likes||0)],
+        ['Compartidos', String(ev.shares||0)], ['Comentarios', String(ev.comments||0)],
+        ['Visualizaciones', String(ev.views||0)], ['Privacidad', ev.privacidad||'—']);
+    }
+    if (ev.tipo === 'video') {
+      rows.push(['--- DATOS DE VIDEO ---',''],
+        ['Duración', ev.duracion||'—'], ['Resolución Video', ev.resolucionVideo||'—'],
+        ['Uploader/Canal', ev.uploader||'—'], ['Fecha Upload', ev.fechaUpload||'—'],
+        ['Comando yt-dlp', ev.ytdlpCmd ? `<pre style="font-size:0.72rem;white-space:pre-wrap">${UI.escHtml(ev.ytdlpCmd)}</pre>` : '—']);
+    }
+    let thumbsHtml = '';
+    if (ev.screenshots && ev.screenshots.length > 0) {
+      thumbsHtml = '<tr><td colspan="2" style="padding-top:15px"><strong>Capturas de Pantalla</strong></td></tr>';
+      ev.screenshots.forEach((sc,i) => {
+        thumbsHtml += `<tr><td>Captura ${i+1}</td><td>
+          <img src="${sc.data}" style="max-width:100%;max-height:250px;border-radius:6px;border:1px solid var(--border)" alt="${sc.name}">
+          <div style="font-size:0.75rem;margin-top:4px;color:var(--text-light)">${sc.name} — SHA-256: <span style="font-family:monospace">${sc.hash||'—'}</span></div>
+        </td></tr>`;
+      });
+    }
+    document.getElementById('modal-detail-title').textContent = `${ev.id} — ${ev.titulo||'Sin título'}`;
+    document.getElementById('modal-detail-body').innerHTML = `
+      <table class="detail-table">
+        ${rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}
+        ${thumbsHtml}
+      </table>`;
+    UI.openModal('modal-detail');
+  },
+
+  async verifyEvidenceCard(id) {
+    const result = await EvidenceManager.verify(id);
+    if (!result) return;
+    const msg = result.match
+      ? `✅ INTEGRIDAD VERIFICADA\n\nLa evidencia ${id} no ha sido modificada.\n\nHash original: ${result.original}\nHash calculado: ${result.recomputed}`
+      : `⚠️ ADVERTENCIA: HASH NO COINCIDE\n\nLa evidencia ${id} puede haber sido modificada.\n\nHash original: ${result.original}\nHash calculado: ${result.recomputed}`;
+    alert(msg);
+    UI.renderChain();
+    if (result.match) UI.toast(`Integridad de ${id} verificada: OK`, 'success');
+    else UI.toast(`Advertencia: Hash de ${id} no coincide`, 'error');
+  },
+
+  confirmDelete(id) {
+    const ev = EvidenceManager.get(id);
+    if (!ev) return;
+    document.getElementById('modal-confirm-body').innerHTML = `<p>¿Está seguro de que desea eliminar la evidencia <strong>${id}</strong>?</p><p style="margin-top:8px;font-size:0.85rem;color:var(--text-light)">"${UI.escHtml(ev.titulo||'')}"</p><p style="margin-top:8px;font-size:0.85rem;color:var(--warning)">Esta acción quedará registrada en la cadena de custodia y no se puede deshacer.</p>`;
+    document.getElementById('btn-confirm-delete').onclick = () => { EvidenceManager.delete(id); UI.closeModal('modal-confirm'); };
+    UI.openModal('modal-confirm');
+  },
+
+  renderChain() {
+    const container = document.getElementById('chain-container');
+    const summary = document.getElementById('chain-summary');
+    if (STATE.cadena.length === 0) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔗</div><h3>Cadena de custodia vacía</h3><p>Las acciones se registrarán automáticamente</p></div>`;
+      summary.innerHTML = '';
+      return;
+    }
+    // Summary counts
+    const counts = {};
+    STATE.cadena.forEach(e => { counts[e.tipo] = (counts[e.tipo]||0) + 1; });
+    summary.innerHTML = Object.entries(counts).map(([tipo,n]) => `<div class="stat-card"><div class="stat-num">${n}</div><div class="stat-label">${tipo.replace(/_/g,' ')}</div></div>`).join('');
+    const tl = document.createElement('div');
+    tl.className = 'timeline';
+    STATE.cadena.forEach(entry => {
+      const icons = { CASO_CREADO:'⚖️', EVIDENCIA_AGREGADA:'➕', EVIDENCIA_VISTA:'👁', EVIDENCIA_MODIFICADA:'✏️', EVIDENCIA_ELIMINADA:'🗑', CASO_EXPORTADO:'📤', VERIFICACION_HASH:'🔍', ENTRADA_MANUAL:'📝' };
+      const item = document.createElement('div');
+      item.className = `timeline-item tl-${entry.tipo}`;
+      item.innerHTML = `
+        <div class="timeline-dot">${icons[entry.tipo]||'•'}</div>
+        <div class="timeline-content">
+          <div class="tl-action">${entry.tipo.replace(/_/g,' ')}</div>
+          <div class="tl-desc">${UI.escHtml(entry.descripcion||'')}</div>
+          <div class="tl-meta">
+            👤 ${UI.escHtml(entry.operador||'—')} &nbsp;·&nbsp;
+            🕐 ${entry.timestamp ? entry.timestamp.replace('T',' ').substring(0,19) + ' UTC' : '—'}
+            ${entry.evidenciaId ? ' &nbsp;·&nbsp; 🗂 ' + entry.evidenciaId : ''}
+            ${entry.hashSnapshot ? '<br><span style="font-family:monospace;font-size:0.7rem;color:var(--success)">🔑 ' + entry.hashSnapshot.substring(0,32) + '…</span>' : ''}
+          </div>
+        </div>`;
+      tl.appendChild(item);
+    });
+    container.innerHTML = '';
+    container.appendChild(tl);
+  },
+
+  showTSRModal() {
+    const url = document.getElementById('ev-url').value.trim();
+    const titulo = document.getElementById('ev-titulo').value.trim();
+    Crypto.sha256text(url + '|' + titulo + '|' + document.getElementById('ev-fecha').value).then(hash => {
+      document.getElementById('tsr-modal-hash').textContent = hash;
+      document.getElementById('tsr-current-hash').textContent = hash;
+      document.getElementById('tsr-hash-display').style.display = 'block';
+      document.getElementById('tsr-pre-msg').style.display = 'none';
+    });
+    UI.openModal('modal-tsr');
+  },
+
+  saveTSRToken() {
+    const token = document.getElementById('tsr-modal-token').value.trim();
+    if (!token) { UI.toast('Por favor pegue el token TSR', 'error'); return; }
+    document.getElementById('ev-tsr-token').value = token;
+    document.getElementById('tsr-saved-value').textContent = token.substring(0,80) + '...';
+    document.getElementById('tsr-saved-display').style.display = 'block';
+    UI.closeModal('modal-tsr');
+    UI.toast('Token TSR guardado', 'success');
+  },
+
+  showManualChainModal() {
+    document.getElementById('chain-manual-operador').value = STATE.caso.perito || '';
+    UI.openModal('modal-chain');
+  },
+
+  openModal(id) {
+    document.getElementById(id).classList.add('open');
+  },
+
+  closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+  },
+
+  toggleCollapsible(id) {
+    const body = document.getElementById('body-' + id);
+    const arrow = document.getElementById('arrow-' + id);
+    body.classList.toggle('open');
+    arrow.textContent = body.classList.contains('open') ? '▲' : '▼';
+  },
+
+  showProgress(title, pct) {
+    document.getElementById('progress-title').textContent = title;
+    document.getElementById('progress-bar').style.width = pct + '%';
+    document.getElementById('progress-text').textContent = title;
+    document.getElementById('progress-overlay').classList.add('show');
+  },
+
+  updateProgress(pct, text) {
+    document.getElementById('progress-bar').style.width = pct + '%';
+    document.getElementById('progress-text').textContent = text;
+  },
+
+  hideProgress() {
+    document.getElementById('progress-overlay').classList.remove('show');
+  },
+
+  toast(msg, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+    toast.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.classList.add('out');
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  },
+
+  copyField(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    navigator.clipboard.writeText(el.value || el.textContent).then(() => UI.toast('Copiado al portapapeles', 'success')).catch(() => {
+      el.select && el.select();
+      document.execCommand('copy');
+      UI.toast('Copiado al portapapeles', 'success');
+    });
+  },
+
+  escHtml(str) {
+    return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  },
+
+  populateCasoForm() {
+    const c = STATE.caso;
+    const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||''; };
+    setVal('caso-numero', c.numero);
+    setVal('caso-tipo', c.tipo);
+    setVal('caso-perito', c.perito);
+    setVal('caso-cedula', c.cedula);
+    setVal('caso-especialidad', c.especialidad);
+    setVal('caso-institucion', c.institucion);
+    setVal('caso-cliente', c.cliente);
+    setVal('caso-descripcion', c.descripcion);
+    setVal('caso-notas', c.notas);
+    if (c.fechaInicio) setVal('caso-fecha', c.fechaInicio.substring(0,16));
+  },
+
+  resetAllForms() {
+    document.querySelectorAll('input[type=text],input[type=url],input[type=number],select,textarea').forEach(el => {
+      if (el.id === 'ev-useragent') el.value = navigator.userAgent;
+      else if (el.id === 'ev-resolucion-pantalla') el.value = `${screen.width}x${screen.height}`;
+      else if (el.id === 'ev-fecha' || el.id === 'caso-fecha') el.value = UI.nowLocal();
+      else if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else el.value = '';
+    });
+  },
+
+  updateVerifyDropdown() {
+    const sel = document.getElementById('verify-evi-select');
+    sel.innerHTML = '<option value="">Seleccionar evidencia...</option>';
+    STATE.evidencias.forEach(ev => {
+      const opt = document.createElement('option');
+      opt.value = ev.id;
+      opt.textContent = `${ev.id} — ${(ev.titulo||'').substring(0,40)}`;
+      sel.appendChild(opt);
+    });
+  },
+
+  loadEvidenceForVerify() {
+    document.getElementById('verify-stored-result').innerHTML = '';
+  },
+
+  async verifyStoredEvidence() {
+    const id = document.getElementById('verify-evi-select').value;
+    if (!id) { UI.toast('Seleccione una evidencia', 'warning'); return; }
+    const result = await EvidenceManager.verify(id);
+    const el = document.getElementById('verify-stored-result');
+    if (result.match) {
+      el.innerHTML = `<div class="verify-result match">✅ INTEGRIDAD VERIFICADA — La evidencia ${id} no ha sido modificada.<br><small style="font-family:monospace">Hash original:   ${result.original}<br>Hash calculado: ${result.recomputed}</small></div>`;
+      UI.toast(`Integridad de ${id} verificada: OK`, 'success');
+    } else {
+      el.innerHTML = `<div class="verify-result mismatch">⚠️ ADVERTENCIA: HASH NO COINCIDE — La evidencia ${id} puede haber sido modificada.<br><small style="font-family:monospace">Hash original:   ${result.original}<br>Hash calculado: ${result.recomputed}</small></div>`;
+      UI.toast(`Hash de ${id} no coincide`, 'error');
+    }
+    UI.renderChain();
+  },
+
+  handleVerifyDrop(event) {
+    event.preventDefault();
+    document.getElementById('verify-drop').classList.remove('drag-over');
+    const file = event.dataTransfer.files[0];
+    if (file) UI.verifyFileProcess(file);
+  },
+
+  verifyFile(event) {
+    const file = event.target.files[0];
+    if (file) UI.verifyFileProcess(file);
+  },
+
+  async verifyFileProcess(file) {
+    UI.showProgress('Calculando hash...', 50);
+    try {
+      const buffer = await file.arrayBuffer();
+      const hash = await Crypto.sha256buffer(buffer);
+      document.getElementById('verify-computed-hash').textContent = hash;
+      document.getElementById('verify-result-area').style.display = 'block';
+      document.getElementById('verify-original-hash').value = '';
+      document.getElementById('verify-compare-result').innerHTML = '';
+      UI.hideProgress();
+      UI.toast(`Hash calculado para: ${file.name}`, 'success');
+    } catch(err) {
+      UI.hideProgress();
+      UI.toast('Error al calcular hash: ' + err.message, 'error');
+    }
+  },
+
+  compareHashes() {
+    const computed = document.getElementById('verify-computed-hash').textContent.trim();
+    const original = document.getElementById('verify-original-hash').value.trim().toLowerCase();
+    const el = document.getElementById('verify-compare-result');
+    if (!original) { UI.toast('Ingrese el hash original para comparar', 'warning'); return; }
+    if (computed.toLowerCase() === original) {
+      el.innerHTML = '<div class="verify-result match">✅ LOS HASHES COINCIDEN — El archivo no ha sido modificado</div>';
+    } else {
+      el.innerHTML = '<div class="verify-result mismatch">⚠️ LOS HASHES NO COINCIDEN — El archivo puede haber sido alterado</div>';
+    }
+    ChainManager.addEntry('VERIFICACION_HASH', `Verificación de archivo: ${computed.toLowerCase() === original ? 'COINCIDE' : 'NO COINCIDE'}`, { operador: STATE.caso.perito || 'Perito' });
+  }
+};
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  // Load stored data
+  const loaded = Storage.load();
+
+  // Auto-fill browser fields
+  document.getElementById('ev-useragent').value = navigator.userAgent;
+  document.getElementById('ev-resolucion-pantalla').value = `${screen.width}x${screen.height}`;
+  document.getElementById('ev-fecha').value = UI.nowLocal();
+  document.getElementById('caso-fecha').value = UI.nowLocal();
+
+  if (loaded && STATE.caso.numero) {
+    UI.populateCasoForm();
+    UI.updateHeader();
+    UI.renderList();
+    UI.renderChain();
+    UI.updateBadge();
+    UI.updateVerifyDropdown();
+    if (STATE.caso.perito) document.getElementById('chain-manual-operador').value = STATE.caso.perito;
+    UI.toast(`Caso cargado: ${STATE.caso.numero} — ${STATE.evidencias.length} evidencias`, 'success');
+  }
+
+  // Close modals on overlay click
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.classList.remove('open');
+    });
+  });
+
+  console.log('INDAGO Forense v' + APP_VERSION + ' inicializado correctamente');
+});
+
+</script>
+</body>
+</html>
