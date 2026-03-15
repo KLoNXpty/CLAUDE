@@ -225,6 +225,41 @@ textarea{resize:vertical;min-height:80px}
 /* Responsive */
 @media(max-width:1200px){.evidence-grid{grid-template-columns:repeat(2,1fr)}.stats-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:900px){.form-grid{grid-template-columns:1fr}.form-grid.cols3{grid-template-columns:1fr}.form-group.span2,.form-group.span3{grid-column:span 1}.export-grid{grid-template-columns:1fr}.evidence-grid{grid-template-columns:1fr}}
+
+/* Server status */
+.server-badge { display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:600; }
+.server-online { background:#d4edda;color:#155724; }
+.server-offline { background:#f8d7da;color:#721c24; }
+.server-dot { width:8px;height:8px;border-radius:50%;display:inline-block; }
+.server-online .server-dot { background:#28a745;animation:pulse 2s infinite; }
+.server-offline .server-dot { background:#dc3545; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* Auto-capture panel */
+.capture-panel { background:linear-gradient(135deg,#0f2744,#1a4a8a);border-radius:12px;padding:20px;margin-bottom:24px;color:#fff; }
+.capture-panel h3 { margin:0 0 4px;font-size:1rem; }
+.capture-panel p { margin:0 0 16px;opacity:0.8;font-size:0.85rem; }
+.capture-input-row { display:flex;gap:10px; }
+.capture-input-row input { flex:1;padding:10px 14px;border:none;border-radius:8px;font-size:0.95rem;background:rgba(255,255,255,0.15);color:#fff;outline:none; }
+.capture-input-row input::placeholder { color:rgba(255,255,255,0.6); }
+.capture-input-row input:focus { background:rgba(255,255,255,0.25); }
+.capture-mode-btns { display:flex;gap:8px;flex-wrap:wrap; }
+.progress-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center; }
+.progress-box { background:#fff;border-radius:16px;padding:32px;width:420px;text-align:center; }
+.progress-bar-outer { background:#e9ecef;border-radius:20px;height:12px;margin:16px 0; }
+.progress-bar-inner { background:linear-gradient(90deg,#1a4a8a,#c9972c);height:100%;border-radius:20px;transition:width 0.4s; }
+.progress-steps { list-style:none;padding:0;text-align:left;font-size:0.85rem;margin-top:16px; }
+.progress-steps li { padding:4px 0;display:flex;align-items:center;gap:8px;color:#666; }
+.progress-steps li.done { color:#27ae60;font-weight:600; }
+.progress-steps li.active { color:#1a4a8a;font-weight:600; }
+.preview-card { background:#f8fafc;border:2px solid var(--border);border-radius:12px;padding:16px;margin-top:16px; }
+.preview-card img { max-width:100%;border-radius:8px;max-height:200px;object-fit:cover; }
+.comments-list { max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px; }
+.comment-item { padding:8px;border-bottom:1px solid #f0f0f0;font-size:0.82rem; }
+.comment-item:last-child { border-bottom:none; }
+.comment-author { font-weight:600;color:var(--primary); }
+.comment-text { color:var(--text);margin-top:2px; }
+.comment-meta { color:var(--text-light);font-size:0.75rem;margin-top:2px; }
 </style>
 </head>
 <body>
@@ -233,6 +268,13 @@ textarea{resize:vertical;min-height:80px}
 <header id="app-header">
   <div class="logo">INDAGO <span>Forense</span></div>
   <div id="header-case">Sin caso activo — Configure un caso en la sección Caso</div>
+  <div id="topbar" style="display:flex;align-items:center;gap:12px">
+    <div id="server-status-badge" class="server-badge server-offline">
+      <span class="server-dot"></span>
+      <span id="server-status-text">Servidor offline</span>
+    </div>
+    <span style="color:rgba(255,255,255,0.5);font-size:0.75rem">INDAGO v2.0</span>
+  </div>
   <div id="header-status" class="closed">SIN CASO</div>
 </header>
 
