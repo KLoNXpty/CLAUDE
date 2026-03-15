@@ -6,18 +6,40 @@ Corre en localhost:8765 junto al archivo INDAGO-FORENSE.html
 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import subprocess, os, json, hashlib, base64, tempfile, shutil, requests, socket
+import subprocess, os, json, hashlib, base64, tempfile, shutil, requests, socket, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 import urllib.parse
 
 app = Flask(__name__)
-CORS(app)  # Allow HTML file (file://) to call the API
+CORS(app, supports_credentials=True)
 
 STORAGE_DIR = Path(tempfile.gettempdir()) / "indago_evidence"
 STORAGE_DIR.mkdir(exist_ok=True)
 
 APP_VERSION = "2.0.0"
+
+# ── Session management ─────────────────────────────────────────
+SESSIONS = {}
+SESSIONS_FILE = STORAGE_DIR / "sessions.json"
+
+def _load_sessions():
+    global SESSIONS
+    if SESSIONS_FILE.exists():
+        try:
+            with open(SESSIONS_FILE) as f:
+                SESSIONS = json.load(f)
+        except Exception:
+            SESSIONS = {}
+
+def _save_sessions():
+    try:
+        with open(SESSIONS_FILE, "w") as f:
+            json.dump(SESSIONS, f, indent=2)
+    except Exception:
+        pass
+
+_load_sessions()
 
 def sha256_file(path):
     h = hashlib.sha256()
@@ -37,6 +59,47 @@ def get_mime(path):
     ext = Path(path).suffix.lower()
     return {'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif',
             'webp':'image/webp','mp4':'video/mp4','webm':'video/webm','mkv':'video/x-matroska'}.get(ext, 'application/octet-stream')
+
+@app.route('/')
+def index():
+    html_path = Path(__file__).parent / 'INDAGO-FORENSE.html'
+    return send_file(str(html_path))
+
+# ── Session endpoints ──────────────────────────────────────────
+
+@app.route('/api/session/create', methods=['POST'])
+def session_create():
+    data = request.json or {}
+    perito = (data.get('perito') or '').strip()
+    if not perito:
+        return jsonify({'error': 'Nombre de perito requerido'}), 400
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    SESSIONS[session_id] = {
+        'session_id': session_id,
+        'perito': perito,
+        'created_at': now,
+        'last_seen': now,
+        'ip': request.remote_addr
+    }
+    _save_sessions()
+    return jsonify(SESSIONS[session_id])
+
+@app.route('/api/session/ping', methods=['POST'])
+def session_ping():
+    data = request.json or {}
+    session_id = data.get('session_id', '')
+    if session_id and session_id in SESSIONS:
+        SESSIONS[session_id]['last_seen'] = datetime.now(timezone.utc).isoformat()
+        _save_sessions()
+        return jsonify(SESSIONS[session_id])
+    return jsonify({'error': 'Sesión no encontrada'}), 404
+
+@app.route('/api/sessions')
+def list_sessions():
+    return jsonify(list(SESSIONS.values()))
+
+# ── Status & capture endpoints ─────────────────────────────────
 
 @app.route('/api/status')
 def status():
@@ -313,11 +376,24 @@ def download_video_file():
 
 
 if __name__ == '__main__':
-    print(f"""
-╔══════════════════════════════════════════════════════╗
-║  INDAGO Forense v{APP_VERSION} — Servidor de Captura      ║
-║  Escuchando en: http://localhost:8765                 ║
-║  Abra INDAGO-FORENSE.html en su navegador            ║
-╚══════════════════════════════════════════════════════╝
-    """)
-    app.run(host='127.0.0.1', port=8765, debug=False)
+    # Collect local network IPs
+    local_ips = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            ip = info[4][0]
+            if not ip.startswith('127.') and ':' not in ip and ip not in local_ips:
+                local_ips.append(ip)
+    except Exception:
+        pass
+
+    print(f"\n╔══════════════════════════════════════════════════════╗")
+    print(f"║  INDAGO Forense v{APP_VERSION} — Servidor de Captura      ║")
+    print(f"╠══════════════════════════════════════════════════════╣")
+    print(f"║  Abra su navegador en:                               ║")
+    print(f"║    http://localhost:8765   (esta máquina)            ║")
+    for ip in local_ips:
+        line = f"    http://{ip}:8765"
+        print(f"║  {line:<52}║")
+    print(f"╚══════════════════════════════════════════════════════╝\n")
+
+    app.run(host='0.0.0.0', port=8765, debug=False)

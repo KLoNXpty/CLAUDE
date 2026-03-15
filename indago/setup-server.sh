@@ -51,10 +51,6 @@ cat > "$SCRIPT_DIR/start-server.sh" << EOF
 #!/bin/bash
 cd "\$(dirname "\$0")"
 source server-venv/bin/activate
-echo ""
-echo "  INDAGO Forense — Servidor de Captura Automática"
-echo "  http://localhost:8765"
-echo ""
 python3 server.py
 EOF
 
@@ -64,11 +60,12 @@ echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════╗"
 echo -e "║  ✅ Instalación completada                           ║"
 echo -e "║                                                      ║"
-echo -e "║  Para usar la herramienta:                           ║"
-echo -e "║                                                      ║"
-echo -e "║  Terminal 1 (servidor):                              ║"
+echo -e "║  Para iniciar el servidor:                           ║"
 echo -e "║    cd ~/CLAUDE/indago && ./start-server.sh           ║"
 echo -e "║                                                      ║"
-echo -e "║  Terminal 2 (herramienta):                           ║"
-echo -e "║    firefox ~/CLAUDE/indago/INDAGO-FORENSE.html       ║"
+echo -e "║  Luego abra su navegador en:                         ║"
+echo -e "║    http://localhost:8765                             ║"
+echo -e "║                                                      ║"
+echo -e "║  Desde otras máquinas use la IP de red:              ║"
+echo -e "║    http://[IP-DEL-SERVIDOR]:8765                     ║"
 echo -e "╚══════════════════════════════════════════════════════╝${NC}"

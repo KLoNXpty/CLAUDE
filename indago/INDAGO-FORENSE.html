@@ -235,6 +235,28 @@ textarea{resize:vertical;min-height:80px}
 .server-offline .server-dot { background:#dc3545; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
+/* Session modal */
+#session-modal{position:fixed;inset:0;background:var(--primary);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+#session-modal.hidden{display:none}
+.session-box{background:#fff;border-radius:16px;padding:40px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);text-align:center}
+.session-logo{font-size:2rem;font-weight:800;color:var(--primary);letter-spacing:2px;margin-bottom:4px}.session-logo span{color:var(--accent)}
+.session-subtitle{font-size:0.85rem;color:var(--text-light);margin-bottom:28px}
+.session-box h3{font-size:1rem;font-weight:700;color:var(--primary);margin-bottom:16px}
+.session-input{width:100%;padding:12px 16px;border:2px solid var(--border);border-radius:8px;font-size:1rem;font-family:inherit;color:var(--text);margin-bottom:12px;transition:border-color 0.2s}
+.session-input:focus{outline:none;border-color:var(--secondary)}
+.session-input.error{border-color:var(--danger)}
+.session-btn{width:100%;padding:12px;background:var(--secondary);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;transition:background 0.2s;margin-bottom:16px}
+.session-btn:hover{background:#0f3a7a}
+.session-divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+.session-list{text-align:left;max-height:200px;overflow-y:auto}
+.session-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all 0.2s}
+.session-item:hover{border-color:var(--secondary);background:#f0f4ff}
+.session-item-name{font-weight:600;font-size:0.9rem;color:var(--primary)}
+.session-item-meta{font-size:0.75rem;color:var(--text-light);margin-top:2px}
+.session-item-resume{font-size:0.75rem;color:var(--secondary);font-weight:600}
+.session-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;background:#e8f4ff;color:var(--secondary);font-size:0.75rem;font-weight:600}
+#header-perito{font-size:0.75rem;color:rgba(255,255,255,0.7);padding:3px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.2)}
+
 /* Auto-capture panel */
 .capture-panel { background:linear-gradient(135deg,#0f2744,#1a4a8a);border-radius:12px;padding:20px;margin-bottom:24px;color:#fff; }
 .capture-panel h3 { margin:0 0 4px;font-size:1rem; }
@@ -264,11 +286,28 @@ textarea{resize:vertical;min-height:80px}
 </head>
 <body>
 
+<!-- SESSION LOGIN MODAL -->
+<div id="session-modal">
+  <div class="session-box">
+    <div class="session-logo">INDAGO <span>Forense</span></div>
+    <div class="session-subtitle">Plataforma de Recolección de Evidencia Digital</div>
+    <h3>Identificación del Perito</h3>
+    <input class="session-input" id="session-perito-input" type="text" placeholder="Nombre completo del perito" autocomplete="off" maxlength="100">
+    <button class="session-btn" onclick="SessionManager.start()">Iniciar Sesión</button>
+    <div id="session-existing-area" style="display:none">
+      <hr class="session-divider">
+      <div style="font-size:0.82rem;color:var(--text-light);margin-bottom:8px;text-align:left">O retomar una sesión existente:</div>
+      <div class="session-list" id="session-list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- HEADER -->
 <header id="app-header">
   <div class="logo">INDAGO <span>Forense</span></div>
   <div id="header-case">Sin caso activo — Configure un caso en la sección Caso</div>
   <div id="topbar" style="display:flex;align-items:center;gap:12px">
+    <span id="header-perito" style="display:none"></span>
     <div id="server-status-badge" class="server-badge server-offline">
       <span class="server-dot"></span>
       <span id="server-status-text">Servidor offline</span>
@@ -303,6 +342,8 @@ textarea{resize:vertical;min-height:80px}
     <span class="nav-icon">🔍</span> Verificar Integridad
   </div>
   <div id="sidebar-footer">
+    <div id="sidebar-session-info" style="font-size:0.78rem;color:#a0b8d8;margin-bottom:8px;word-break:break-word"></div>
+    <button onclick="SessionManager.newSession()" style="width:100%;padding:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#a0b8d8;border-radius:6px;cursor:pointer;font-size:0.75rem;margin-bottom:8px">↩ Cambiar Perito</button>
     <div class="version">INDAGO Forense v2.0.0<br>ISO/IEC 27037:2012 · RFC 3161</div>
   </div>
 </nav>
@@ -992,6 +1033,119 @@ python server.py</pre>
 const APP_VERSION = '2.0.0';
 const STORAGE_KEY = 'indago_forense_v2';
 
+// ============================================================
+// SESSION MANAGER
+// ============================================================
+const SessionManager = {
+  sessionId: null,
+  peritoName: null,
+
+  async init() {
+    // Check for existing session in sessionStorage
+    try {
+      const raw = sessionStorage.getItem('indago_session');
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s && s.session_id && s.perito) {
+          this.sessionId = s.session_id;
+          this.peritoName = s.perito;
+          this._applySession();
+          return;
+        }
+      }
+    } catch(e) {}
+
+    // Load existing sessions from server to offer resume
+    try {
+      const r = await fetch('/api/sessions');
+      const sessions = await r.json();
+      if (sessions.length > 0) {
+        const listEl = document.getElementById('session-list');
+        listEl.innerHTML = '';
+        sessions.slice(-5).reverse().forEach(s => {
+          const div = document.createElement('div');
+          div.className = 'session-item';
+          const since = s.created_at ? new Date(s.created_at).toLocaleString() : '';
+          div.innerHTML = `<div><div class="session-item-name">${s.perito}</div><div class="session-item-meta">Creada: ${since} · IP: ${s.ip||'?'}</div></div><span class="session-item-resume">Retomar →</span>`;
+          div.onclick = () => this._resume(s);
+          listEl.appendChild(div);
+        });
+        document.getElementById('session-existing-area').style.display = 'block';
+      }
+    } catch(e) {}
+
+    // Show modal
+    document.getElementById('session-modal').classList.remove('hidden');
+    // Pre-populate perito name if already in caso form
+    const peritoField = document.getElementById('caso-perito');
+    if (peritoField && peritoField.value) {
+      document.getElementById('session-perito-input').value = peritoField.value;
+    }
+    document.getElementById('session-perito-input').focus();
+  },
+
+  async start() {
+    const input = document.getElementById('session-perito-input');
+    const perito = input.value.trim();
+    if (!perito) {
+      input.classList.add('error');
+      input.focus();
+      return;
+    }
+    input.classList.remove('error');
+    try {
+      const resp = await fetch('/api/session/create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({perito})
+      });
+      const data = await resp.json();
+      this.sessionId = data.session_id;
+      this.peritoName = data.perito;
+      sessionStorage.setItem('indago_session', JSON.stringify(data));
+      this._applySession();
+    } catch(e) {
+      // Fallback: create local-only session if server unreachable
+      this.sessionId = 'local-' + Date.now();
+      this.peritoName = perito;
+      sessionStorage.setItem('indago_session', JSON.stringify({session_id: this.sessionId, perito}));
+      this._applySession();
+    }
+  },
+
+  _resume(s) {
+    this.sessionId = s.session_id;
+    this.peritoName = s.perito;
+    sessionStorage.setItem('indago_session', JSON.stringify(s));
+    this._applySession();
+  },
+
+  _applySession() {
+    document.getElementById('session-modal').classList.add('hidden');
+    // Pre-fill perito field in case form
+    const peritoField = document.getElementById('caso-perito');
+    if (peritoField && !peritoField.value) peritoField.value = this.peritoName;
+    // Show perito badge in header
+    const badge = document.getElementById('header-perito');
+    if (badge) {
+      badge.textContent = '👤 ' + this.peritoName;
+      badge.style.display = 'inline';
+    }
+    // Show session info in sidebar
+    const info = document.getElementById('sidebar-session-info');
+    if (info) info.textContent = '👤 ' + this.peritoName;
+  },
+
+  // Allow perito to start a new session
+  newSession() {
+    sessionStorage.removeItem('indago_session');
+    this.sessionId = null;
+    this.peritoName = null;
+    document.getElementById('session-perito-input').value = '';
+    this.init();
+  }
+};
+
 const STATE = {
   caso: {},
   evidencias: [],
@@ -1026,15 +1180,15 @@ const Storage = {
       };
       // Store full data (with images) in a separate key
       const fullData = { caso: STATE.caso, evidencias: STATE.evidencias, cadena: STATE.cadena, config: STATE.config };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(fullData));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(fullData));
     } catch(e) {
       console.warn('Storage save error:', e);
-      UI.toast('Advertencia: No se pudo guardar en localStorage (posiblemente lleno)', 'warning');
+      UI.toast('Advertencia: No se pudo guardar (sesión posiblemente llena)', 'warning');
     }
   },
   load() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return false;
       const data = JSON.parse(raw);
       STATE.caso = data.caso || {};
@@ -1048,7 +1202,7 @@ const Storage = {
     }
   },
   clear() {
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
     STATE.caso = {};
     STATE.evidencias = [];
     STATE.cadena = [];
@@ -2333,6 +2487,11 @@ const UI = {
 // INITIALIZATION
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
+  // Enter key support for session modal
+  document.getElementById('session-perito-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') SessionManager.start();
+  });
+
   // Load stored data
   const loaded = Storage.load();
 
@@ -2364,12 +2523,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   AutoCapture.checkServer();
   setInterval(AutoCapture.checkServer, 10000);
+
+  // Initialize session manager (shows login modal if no session)
+  SessionManager.init();
 });
 
 // ============================================================
 // AutoCapture — Servidor de Captura Automática
 // ============================================================
-const SERVER_URL = 'http://localhost:8765';
+const SERVER_URL = '';  // relative — adapts to any server IP automatically
 
 const AutoCapture = {
   serverOnline: false,
